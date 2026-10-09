@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <title>Creación de Menú - Administración</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+  <style>
+    body {
+      background-color: #f4f4f4;
+    }
+    .menu-container {
+      max-width: 900px;
+      margin: 50px auto;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Navbar superior -->
+  <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
+    <div class="container-fluid">
+      <a class="navbar-brand" href="#">Sistema</a>
+      <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+        <span class="navbar-toggler-icon"></span>
+      </button>
+      <div class="collapse navbar-collapse justify-content-center" id="navbarNav">
+        <ul class="navbar-nav">
+          <li class="nav-item"><a class="nav-link" href="cuenta.html">Mi Cuenta</a></li>
+         
+          <li class="nav-item"><a class="nav-link active" href="menu.html">Creación de Menú</a></li>
+          <li class="nav-item"><a class="nav-link" href="reportes.html">Reportes</a></li>
+          <li class="nav-item"><a class="nav-link" href="usuarios.html">Usuarios</a></li>
+          <li class="nav-item"><a class="nav-link active" href="InicioSesion.html">Cerrar Sesion</a></li>
+        </ul>
+      </div>
+    </div>
+  </nav>
+
+  <!-- Botón para crear nuevo menú -->
+  <div class="container menu-container text-center mb-3">
+    <button class="btn btn-success" data-bs-toggle="modal" data-bs-target="#nuevoMenuModal">
+      Crear Menú para la Próxima Semana
+    </button>
+  </div>
+
+  <!-- Tabla de menú semanal -->
+  <div class="container menu-container">
+    <div class="card shadow">
+      <div class="card-header bg-primary text-white text-center">
+        <h4>Menú Semanal de Almuerzos</h4>
+      </div>
+      <div class="card-body">
+<div class="table-responsive">
+  <table class="table table-bordered table-hover align-middle text-center">
+    <thead class="table-primary">
+      <tr>
+        <th>Fecha</th>
+        <th>Día</th>
+        <th>Almuerzo</th>
+      </tr>
+    </thead>
+    <tbody id="menuTable">
+      <tr>
+        <td>12/10/2026</td>
+        <td>Lunes</td>
+        <td>Pollo a la plancha con ensalada fresca</td>
+      </tr>
+      <tr>
+        <td>13/10/2026</td>
+        <td>Martes</td>
+        <td class="color">Feriado</td>
+      </tr>
+      <tr>
+        <td>14/10/2026</td>
+        <td>Miércoles</td>
+        <td>Carne asada con papas doradas</td>
+      </tr>
+      <tr>
+        <td>15/10/2026</td>
+        <td>Jueves</td>
+        <td>Lasaña de verduras con queso gratinado</td>
+      </tr>
+      <tr>
+        <td>16/10/2026</td>
+        <td>Viernes</td>
+        <td>Arroz con pollo y ensalada de zanahoria</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal para crear menú semanal -->
+  <div class="modal fade" id="nuevoMenuModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+      <div class="modal-content">
+        <div class="modal-header bg-primary text-white">
+          <h5 class="modal-title">Crear Menú para la Próxima Semana</h5>
+          <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <form id="nuevoMenuForm">
+            <!-- Selección de mes y semana -->
+            <div class="row mb-3">
+              <div class="col-md-6">
+                <label class="form-label">Mes</label>
+                <select class="form-select" id="mes" required>
+                  <option value="">Seleccione un mes</option>
+                  <option value="10">Octubre</option>
+                  <option value="11">Noviembre</option>
+                  <option value="12">Diciembre</option>
+                </select>
+              </div>
+              <div class="col-md-6">
+                <label class="form-label">Semana</label>
+                <select class="form-select" id="semana" required>
+                  <option value="">Seleccione semana</option>
+                  <option value="1">Primera semana</option>
+                  <option value="2">Segunda semana</option>
+                  <option value="3">Tercera semana</option>
+                  <option value="4">Cuarta semana</option>
+                </select>
+              </div>
+            </div>
+
+            <!-- Campos para almuerzos -->
+            <div id="diasContainer">
+              <!-- Se generarán dinámicamente los días con fecha y almuerzo -->
+            </div>
+
+            <button type="submit" class="btn btn-success w-100 mt-3">Guardar Menú</button>
+          </form>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Bootstrap JS -->
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+
+  <!-- Script para generar días y evitar duplicados -->
+  <script>
+    const diasSemana = ["Lunes","Martes","Miércoles","Jueves","Viernes"];
+
+    document.getElementById('semana').addEventListener('change', generarDias);
+
+    function generarDias() {
+      const semana = document.getElementById('semana').value;
+      const mes = document.getElementById('mes').value;
+      const diasContainer = document.getElementById('diasContainer');
+      diasContainer.innerHTML = "";
+
+      if (!semana || !mes) return;
+
+      // Generar fechas aproximadas (ejemplo simple: cada semana empieza el lunes 1, 8, 15, 22)
+      const inicio = (semana - 1) * 7 + 1;
+
+      diasSemana.forEach((dia, i) => {
+        const fecha = `${inicio + i}/${mes}/2026`;
+        diasContainer.innerHTML += `
+          <div class="row mb-3">
+            <div class="col-md-6">
+              <label class="form-label">${dia} (${fecha})</label>
+              <input type="text" class="form-control" value="${fecha}" disabled>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">Almuerzo</label>
+              <input type="text" class="form-control almuerzo" required>
+            </div>
+          </div>
+        `;
+      });
+    }
+
+    document.getElementById('nuevoMenuForm').addEventListener('submit', function(e) {
+      e.preventDefault();
+      const almuerzos = document.querySelectorAll('.almuerzo');
+      const semana = document.getElementById('semana').value;
+      const mes = document.getElementById('mes').value;
+      const inicio = (semana - 1) * 7 + 1;
+
+      let filas = "";
+      diasSemana.forEach((dia, i) => {
+        const fecha = `${inicio + i}/${mes}/2026`;
+        filas += `
+          <tr>
+            <td>${fecha}</td>
+            <td>${dia}</td>
+            <td>${almuerzos[i].value}</td>
+          </tr>
+        `;
+      });
+
+      document.getElementById('menuTable').innerHTML = filas;
+
+      const modal = bootstrap.Modal.getInstance(document.getElementById('nuevoMenuModal'));
+      modal.hide();
+      e.target.reset();
+      document.getElementById('diasContainer').innerHTML = "";
+    });
+  </script>
+</body>
+</html>
