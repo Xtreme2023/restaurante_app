@@ -42,10 +42,24 @@ class AdminEmployeesState {
   });
 
   int get totalEmployees => employees.length;
-  int get monthlyPlanCount => employees.where((e) => e.hasMonthlyPlan).length;
-  int get dailyPlanCount => employees.where((e) => !e.hasMonthlyPlan).length;
+  int get monthlyPlanCount =>
+      employees.where((e) => e.hasMonthlyPlan).length +
+      employees.fold(
+        0,
+        (sum, e) => sum + e.familiares.where((f) => f.hasMonthlyPlan).length,
+      );
+  int get dailyPlanCount =>
+      employees.where((e) => !e.hasMonthlyPlan).length +
+      employees.fold(
+        0,
+        (sum, e) => sum + e.familiares.where((f) => !f.hasMonthlyPlan).length,
+      );
   int get totalFamilyCount =>
       employees.fold(0, (prev, e) => prev + e.familiares.length);
+  int get familyMonthlyPlanCount => employees.fold(
+    0,
+    (sum, e) => sum + e.familiares.where((f) => f.hasMonthlyPlan).length,
+  );
 }
 
 class AdminEmployeesNotifier extends Notifier<AdminEmployeesState> {
@@ -167,7 +181,8 @@ class AdminEmployeesNotifier extends Notifier<AdminEmployeesState> {
 
   Future<bool> addFamiliarToEmployee({
     required String employeeId,
-    required String ci,
+    String ci = '',
+    String telefono = '',
     required String nombres,
     required String apellidos,
     required String parentesco,
@@ -178,6 +193,7 @@ class AdminEmployeesNotifier extends Notifier<AdminEmployeesState> {
         id: 'fam-$employeeId-${DateTime.now().millisecondsSinceEpoch}',
         empleadoId: employeeId,
         ci: ci,
+        telefono: telefono,
         nombres: nombres,
         apellidos: apellidos,
         parentesco: parentesco,
@@ -222,13 +238,27 @@ class AdminEmployeesNotifier extends Notifier<AdminEmployeesState> {
     }
   }
 
-  Future<void> toggleMonthlyPlan(String employeeId, bool hasPlan) async {
+  Future<void> toggleMonthlyPlan(
+    String employeeId,
+    bool hasPlan, {
+    String? familiarId,
+  }) async {
     final repo = ref.read(adminRepositoryProvider);
-    await repo.toggleMonthlyPlan(employeeId, hasPlan);
+    await repo.toggleMonthlyPlan(employeeId, hasPlan, familiarId: familiarId);
     state = AdminEmployeesState(
       employees: state.employees.map((e) {
         if (e.id == employeeId) {
-          return e.copyWith(hasMonthlyPlan: hasPlan);
+          if (familiarId != null) {
+            final updatedFams = e.familiares.map((f) {
+              if (f.id == familiarId) {
+                return f.copyWith(hasMonthlyPlan: hasPlan);
+              }
+              return f;
+            }).toList();
+            return e.copyWith(familiares: updatedFams);
+          } else {
+            return e.copyWith(hasMonthlyPlan: hasPlan);
+          }
         }
         return e;
       }).toList(),
@@ -250,9 +280,11 @@ final filteredAdminEmployeesProvider = Provider<List<AdminEmployee>>((ref) {
   return state.employees.where((emp) {
     switch (filter) {
       case MembershipFilter.mensual:
-        return emp.hasMonthlyPlan;
+        return emp.hasMonthlyPlan ||
+            emp.familiares.any((f) => f.hasMonthlyPlan);
       case MembershipFilter.diario:
-        return !emp.hasMonthlyPlan;
+        return !emp.hasMonthlyPlan ||
+            emp.familiares.any((f) => !f.hasMonthlyPlan);
       case MembershipFilter.todos:
         return true;
     }

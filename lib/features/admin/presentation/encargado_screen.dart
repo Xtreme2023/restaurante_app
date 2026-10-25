@@ -65,12 +65,16 @@ class _EncargadoScreenState extends ConsumerState<EncargadoScreen> {
 
     try {
       final repo = ref.read(reservationRepositoryProvider);
+      await repo.markReservationAsPickedUp(order.id, true);
       await repo.updateReservationStatus(order.id, 'entregada');
       if (mounted) {
         setState(() {
           final index = _orders.indexWhere((o) => o.id == order.id);
           if (index != -1) {
-            _orders[index] = order.copyWith(status: 'entregada');
+            _orders[index] = order.copyWith(
+              status: 'entregada',
+              recogido: true,
+            );
           }
         });
 

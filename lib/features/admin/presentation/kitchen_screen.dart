@@ -84,13 +84,17 @@ class _KitchenScreenState extends ConsumerState<KitchenScreen>
       // Los pedidos del plan mensual se construyen desde el padrón diario y
       // no tienen una fila individual en `reservas`.
       if (!order.id.startsWith('monthly-')) {
+        await repo.markReservationAsPickedUp(order.id, true);
         await repo.updateReservationStatus(order.id, 'entregada');
       }
       if (mounted) {
         setState(() {
           final index = _orders.indexWhere((o) => o.id == order.id);
           if (index != -1) {
-            _orders[index] = order.copyWith(status: 'entregada');
+            _orders[index] = order.copyWith(
+              status: 'entregada',
+              recogido: true,
+            );
           }
         });
 

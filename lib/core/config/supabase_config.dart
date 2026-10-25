@@ -1,39 +1,52 @@
 import 'package:flutter/foundation.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 class SupabaseConfig {
   static const String dishImagesBucket = 'platos';
 
   /// URL del proyecto Supabase.
-  /// Puede ser configurada mediante variables de entorno (--dart-define=SUPABASE_URL=...)
-  /// o editando esta constante con tu URL de Supabase.
-  static const String supabaseUrl = String.fromEnvironment(
-    'SUPABASE_URL',
-    defaultValue: 'https://qnieqczrdyxyhpepjduj.supabase.co',
-  );
+  static String get supabaseUrl {
+    if (dotenv.isInitialized) {
+      final fromEnv = dotenv.env['SUPABASE_URL']?.trim() ?? '';
+      if (fromEnv.isNotEmpty) return fromEnv;
+    }
+    return const String.fromEnvironment(
+      'SUPABASE_URL',
+      defaultValue: 'https://vzcrkhjqdsnxizhyjjjk.supabase.co',
+    );
+  }
 
-  /// Clave anónima pública de Supabase (anon public key).
-  /// Puede configurarse mediante --dart-define=SUPABASE_ANON_KEY=...
-  static const String supabaseAnonKey = String.fromEnvironment(
-    'SUPABASE_ANON_KEY',
-    defaultValue: 'sb_publishable_s7ww56WzXyW76KlH-cqvfQ_SgdpLsX7',
-  );
-
-  static bool _isInitialized = false;
+  /// Clave anónima pública de Supabase.
+  static String get supabaseAnonKey {
+    if (dotenv.isInitialized) {
+      final fromEnv = dotenv.env['SUPABASE_ANON_KEY']?.trim() ?? '';
+      if (fromEnv.isNotEmpty) return fromEnv;
+    }
+    return const String.fromEnvironment(
+      'SUPABASE_ANON_KEY',
+      defaultValue:
+          'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZ6Y3JraGpxZHNueGl6aHlqamprIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTE0NzgwNjQsImV4cCI6MjEwNzA1NDA2NH0.1CspDh3s9fLpn9cSU--xYlEYa4q6JEGjEySoWkT3yR8',
+    );
+  }
 
   /// Retorna si Supabase está activo y conectado.
-  static bool get isInitialized => _isInitialized;
+  static bool get isInitialized {
+    try {
+      Supabase.instance.client;
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
 
   /// Retorna el cliente Supabase si está disponible.
   static SupabaseClient? get client {
-    if (_isInitialized) {
-      try {
-        return Supabase.instance.client;
-      } catch (_) {
-        return null;
-      }
+    try {
+      return Supabase.instance.client;
+    } catch (_) {
+      return null;
     }
-    return null;
   }
 
   /// Convierte una ruta guardada en la tabla `platos` en una URL pública del
@@ -62,6 +75,7 @@ class SupabaseConfig {
   /// Si la URL no es válida o no hay conexión, la app inicia en modo demostración/híbrido.
   static Future<void> initialize() async {
     try {
+      if (isInitialized) return;
       if (supabaseUrl.isNotEmpty &&
           supabaseUrl.startsWith('https://') &&
           !supabaseUrl.contains('demo-restaurante')) {
@@ -72,24 +86,21 @@ class SupabaseConfig {
             authFlowType: AuthFlowType.pkce,
           ),
         );
-        _isInitialized = true;
         debugPrint('✅ Supabase inicializado correctamente.');
       } else {
         debugPrint(
           'ℹ️ Supabase no configurado con credenciales reales. Iniciando en modo local/demo.',
         );
-        _isInitialized = false;
       }
     } catch (e) {
       debugPrint('⚠️ Error al inicializar Supabase ($e). Modo local activo.');
-      _isInitialized = false;
     }
   }
 
   /// Comprueba el estado de la conexión a Supabase y retorna un diagnóstico legible.
   static Future<Map<String, dynamic>> checkConnectionHealth() async {
     final client = SupabaseConfig.client;
-    if (!_isInitialized || client == null) {
+    if (!isInitialized || client == null) {
       return {
         'connected': false,
         'message': 'Supabase no inicializado o modo local activo',

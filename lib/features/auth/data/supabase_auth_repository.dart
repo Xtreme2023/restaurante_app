@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:restaurante_app/core/config/supabase_config.dart';
 import 'package:restaurante_app/features/auth/domain/user_profile.dart';
+import 'package:restaurante_app/supabase/usuarios_service.dart';
 
 class SupabaseAuthRepository {
   UserProfile? _localSession;
@@ -109,7 +110,7 @@ class SupabaseAuthRepository {
 
     try {
       final authRes = await client.auth.signInWithPassword(
-        email: email,
+        email: email.trim(),
         password: password,
       );
 
@@ -123,15 +124,31 @@ class SupabaseAuthRepository {
         userId: user.id,
         email: user.email ?? email,
       );
+
       if (profile != null) {
+        if (!profile.activo) {
+          await client.auth.signOut();
+          throw Exception(
+            'Esta cuenta ha sido desactivada. Comuníquese con el administrador.',
+          );
+        }
         _localSession = profile;
         return profile;
       }
 
-      throw Exception(
-        'La cuenta inició sesión, pero no tiene un perfil en '
-        'public.usuarios ni public.profiles.',
+      // Si no existe fila en vista_usuarios, usar metadatos como respaldo
+      final fallbackProfile = UserProfile(
+        id: user.id,
+        email: user.email ?? email,
+        fullName: user.userMetadata?['nombre_completo'] ??
+            user.userMetadata?['full_name'] ??
+            'Usuario',
+        role: user.userMetadata?['rol'] ??
+            user.userMetadata?['role'] ??
+            'empleado',
       );
+      _localSession = fallbackProfile;
+      return fallbackProfile;
     } on AuthRetryableFetchException catch (e) {
       debugPrint(
         '⚠️ Supabase Auth no está disponible ($e). Usando sesión local temporal.',
@@ -153,41 +170,25 @@ class SupabaseAuthRepository {
   }) async {
     final normalizedEmail = email?.trim().toLowerCase();
 
-    for (final lookup in [
-      {'column': 'id', 'value': userId},
-      if (normalizedEmail != null && normalizedEmail.isNotEmpty)
-        {'column': 'email', 'value': normalizedEmail},
-    ]) {
-      try {
-        final usuarioData = await client
-            .from('usuarios')
-            .select()
-            .eq(lookup['column']!, lookup['value']!)
-            .maybeSingle();
-        if (usuarioData != null) {
-          return UserProfile.fromJson(usuarioData);
-        }
-      } catch (e) {
-        debugPrint('⚠️ No se pudo leer el perfil en usuarios: $e');
+    // 1. Consulta exclusiva a la vista vista_usuarios por id_usuario
+    try {
+      final vistaData = await UsuariosService.getUsuarioById(userId);
+      if (vistaData != null) {
+        return UserProfile.fromJson(vistaData);
       }
+    } catch (e) {
+      debugPrint('ℹ️ Error leyendo vista_usuarios por id_usuario: $e');
     }
 
-    for (final lookup in [
-      {'column': 'id', 'value': userId},
-      if (normalizedEmail != null && normalizedEmail.isNotEmpty)
-        {'column': 'email', 'value': normalizedEmail},
-    ]) {
+    // 2. Consulta a vista_usuarios por email
+    if (normalizedEmail != null && normalizedEmail.isNotEmpty) {
       try {
-        final profileData = await client
-            .from('profiles')
-            .select()
-            .eq(lookup['column']!, lookup['value']!)
-            .maybeSingle();
-        if (profileData != null) {
-          return UserProfile.fromJson(profileData);
+        final vistaData = await UsuariosService.getUsuarioByEmail(normalizedEmail);
+        if (vistaData != null) {
+          return UserProfile.fromJson(vistaData);
         }
       } catch (e) {
-        debugPrint('⚠️ No se pudo leer el perfil en profiles: $e');
+        debugPrint('ℹ️ Error leyendo vista_usuarios por email: $e');
       }
     }
 
@@ -237,10 +238,26 @@ class SupabaseAuthRepository {
       return profile;
     }
 
+    final parts = fullName.trim().split(' ');
+    final firstName = parts.isNotEmpty ? parts.first : fullName.trim();
+    final lastName = parts.length > 1 ? parts.sublist(1).join(' ') : ' ';
+    final normalizedRol = role.toLowerCase().contains('admin')
+        ? 'Administrador'
+        : role.toLowerCase().contains('institucion')
+            ? 'Institucion'
+            : 'Empleado';
+
     final res = await client.auth.signUp(
-      email: email,
+      email: email.trim().toLowerCase(),
       password: password,
-      data: {'full_name': fullName, 'role': role},
+      data: {
+        'nombre': firstName,
+        'nombres': firstName,
+        'apellidos': lastName,
+        'ci_codigo': 'CI-${DateTime.now().millisecondsSinceEpoch}',
+        'telefono': '70000000',
+        'rol': normalizedRol,
+      },
     );
 
     final user = res.user;

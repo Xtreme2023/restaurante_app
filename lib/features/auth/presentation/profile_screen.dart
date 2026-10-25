@@ -1,13 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:restaurante_app/core/config/supabase_config.dart';
-import 'package:restaurante_app/features/admin/presentation/encargado_screen.dart';
-import 'package:restaurante_app/features/admin/presentation/institucion_screen.dart';
 import 'package:restaurante_app/features/auth/data/supabase_auth_repository.dart';
 import 'package:restaurante_app/features/auth/domain/user_profile.dart';
 import 'package:restaurante_app/features/auth/presentation/providers/auth_provider.dart';
 import 'package:restaurante_app/features/familiares/presentation/providers/family_providers.dart';
 import 'package:restaurante_app/features/pension/presentation/pension_screen.dart';
+import 'package:restaurante_app/features/reservas/presentation/personal_consumption_metrics_screen.dart';
 
 class ProfileScreen extends ConsumerStatefulWidget {
   const ProfileScreen({super.key});
@@ -531,38 +530,37 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                 const Divider(),
 
                 // Panel Encargado de Cocina
-                _buildActionTile(
-                  title: 'Panel de Cocina & Despacho',
-                  subtitle: user.isEncargado
-                      ? 'Administra la entrega de platos de hoy'
-                      : 'Ver vista previa del encargado de cocina',
-                  icon: Icons.soup_kitchen,
-                  color: Colors.orange,
-                  onTap: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (_) => const EncargadoScreen(),
-                      ),
-                    );
-                  },
-                ),
-
+                // _buildActionTile(
+                //   title: 'Panel de Cocina & Despacho',
+                //   subtitle: user.isEncargado
+                //       ? 'Administra la entrega de platos de hoy'
+                //       : 'Ver vista previa del encargado de cocina',
+                //   icon: Icons.soup_kitchen,
+                //   color: Colors.orange,
+                //   onTap: () {
+                //     Navigator.push(
+                //       context,
+                //       MaterialPageRoute(
+                //         builder: (_) => const EncargadoScreen(),
+                //       ),
+                //     );
+                //   },
+                // ),
                 const Divider(),
 
-                // Panel Institucional
+                // Métricas Institucionales (HU12)
                 _buildActionTile(
                   title: 'Métricas Institucionales',
-                  subtitle: user.isInstitucion
-                      ? 'Reportes de subsidio y nómina'
-                      : 'Ver métricas de la institución',
+                  subtitle:
+                      'Estadísticas personales de consumo (titular y familiares)',
                   icon: Icons.bar_chart,
                   color: Colors.purple,
                   onTap: () {
                     Navigator.push(
                       context,
                       MaterialPageRoute(
-                        builder: (_) => const InstitucionScreen(),
+                        builder: (_) =>
+                            const PersonalConsumptionMetricsScreen(),
                       ),
                     );
                   },

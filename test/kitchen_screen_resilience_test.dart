@@ -38,6 +38,34 @@ class FailingReservationRepository implements ReservationRepository {
   }
 
   @override
+  Future<void> markReservationAsPickedUp(
+      String reservationId, bool recogido) async {
+    throw Exception('Error simulado al marcar recogido');
+  }
+
+  @override
+  Future<List<Reservation>> getUserReservationsForPeriod(
+      String userId, DateTime startDate, DateTime endDate) async {
+    throw Exception('Error simulado al obtener reservas por período');
+  }
+
+  @override
+  Future<List<Map<String, dynamic>>> getAttendanceForDate(DateTime date) async {
+    return [];
+  }
+
+  @override
+  Future<void> registerAttendance({
+    required String userId,
+    int? reservationId,
+    required DateTime date,
+    bool asistio = true,
+    String? observacion,
+  }) async {
+    throw Exception('Error simulado al registrar asistencia');
+  }
+
+  @override
   Future<List<Holiday>> getHolidays() async {
     return Holiday.defaultHolidays;
   }

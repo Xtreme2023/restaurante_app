@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:restaurante_app/features/admin/domain/admin_employee_entity.dart';
+import 'package:restaurante_app/features/admin/presentation/attendance_admin_tab.dart';
 import 'package:restaurante_app/features/admin/presentation/institucion_screen.dart';
 import 'package:restaurante_app/features/admin/presentation/providers/admin_providers.dart';
 import 'package:restaurante_app/features/auth/presentation/providers/auth_provider.dart';
@@ -23,7 +24,7 @@ class _AdminScreenState extends ConsumerState<AdminScreen>
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 4, vsync: this);
+    _tabController = TabController(length: 5, vsync: this);
   }
 
   @override
@@ -85,6 +86,7 @@ class _AdminScreenState extends ConsumerState<AdminScreen>
               text: 'Empleados & Familiares',
             ),
             Tab(icon: Icon(Icons.card_membership_outlined), text: 'Membresías'),
+            Tab(icon: Icon(Icons.how_to_reg_outlined), text: 'Asistencia'),
             Tab(icon: Icon(Icons.analytics_outlined), text: 'Auditoría'),
             Tab(icon: Icon(Icons.lock_reset_outlined), text: 'Solicitudes'),
           ],
@@ -95,6 +97,7 @@ class _AdminScreenState extends ConsumerState<AdminScreen>
         children: [
           _buildEmployeesTab(state),
           _buildMembershipsTab(state, currentFilter),
+          const AttendanceAdminTab(),
           const InstitucionScreen(),
           _buildPasswordResetRequestsTab(),
         ],
@@ -775,88 +778,227 @@ class _AdminScreenState extends ConsumerState<AdminScreen>
                         : Colors.orange.shade200,
                   ),
                 ),
-                child: Row(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    CircleAvatar(
-                      backgroundColor: emp.hasMonthlyPlan
-                          ? Colors.green.withValues(alpha: 0.15)
-                          : Colors.orange.withValues(alpha: 0.15),
-                      child: Icon(
-                        emp.hasMonthlyPlan ? Icons.star : Icons.person_outline,
-                        color: emp.hasMonthlyPlan
-                            ? Colors.green
-                            : Colors.orange,
-                        size: 20,
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            emp.fullName,
-                            style: const TextStyle(
-                              fontWeight: FontWeight.bold,
-                              fontSize: 14.5,
-                            ),
-                          ),
-                          Text(
-                            'CI: ${emp.ci} • ${emp.departamento}',
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: Colors.grey.shade700,
-                            ),
-                          ),
-                          Text(
-                            'Tarifa aplicable: Bs. ${emp.tariffPrice.toStringAsFixed(2)} por plato',
-                            style: TextStyle(
-                              fontSize: 11.5,
-                              fontWeight: FontWeight.bold,
-                              color: emp.hasMonthlyPlan
-                                  ? Colors.green.shade800
-                                  : Colors.deepOrange,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    Column(
+                    Row(
                       children: [
-                        Switch(
-                          value: emp.hasMonthlyPlan,
-                          activeThumbColor: Colors.green,
-                          onChanged: (val) {
-                            ref
-                                .read(adminEmployeesProvider.notifier)
-                                .toggleMonthlyPlan(emp.id, val);
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(
-                                content: Text(
-                                  val
-                                      ? '${emp.fullName} suscrito a Plan Mensual (Tarifa: 15 Bs).'
-                                      : '${emp.fullName} en modalidad diaria (Tarifa: 18 Bs).',
-                                ),
-                                backgroundColor: val
-                                    ? Colors.green
-                                    : Colors.orange.shade800,
-                                duration: const Duration(seconds: 2),
-                              ),
-                            );
-                          },
-                        ),
-                        Text(
-                          emp.hasMonthlyPlan ? 'Plan 15 Bs' : 'Diario 18 Bs',
-                          style: TextStyle(
-                            fontSize: 10,
-                            fontWeight: FontWeight.w600,
+                        CircleAvatar(
+                          backgroundColor: emp.hasMonthlyPlan
+                              ? Colors.green.withValues(alpha: 0.15)
+                              : Colors.orange.withValues(alpha: 0.15),
+                          child: Icon(
+                            emp.hasMonthlyPlan
+                                ? Icons.star
+                                : Icons.person_outline,
                             color: emp.hasMonthlyPlan
                                 ? Colors.green
-                                : Colors.grey.shade700,
+                                : Colors.orange,
+                            size: 20,
                           ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                emp.fullName,
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 14.5,
+                                ),
+                              ),
+                              Text(
+                                'CI: ${emp.ci} • ${emp.departamento}',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: Colors.grey.shade700,
+                                ),
+                              ),
+                              Text(
+                                'Tarifa aplicable: Bs. ${emp.tariffPrice.toStringAsFixed(2)} por plato',
+                                style: TextStyle(
+                                  fontSize: 11.5,
+                                  fontWeight: FontWeight.bold,
+                                  color: emp.hasMonthlyPlan
+                                      ? Colors.green.shade800
+                                      : Colors.deepOrange,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        Column(
+                          children: [
+                            Switch(
+                              value: emp.hasMonthlyPlan,
+                              activeThumbColor: Colors.green,
+                              onChanged: (val) {
+                                ref
+                                    .read(adminEmployeesProvider.notifier)
+                                    .toggleMonthlyPlan(emp.id, val);
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(
+                                    content: Text(
+                                      val
+                                          ? '${emp.fullName} suscrito a Plan Mensual (Tarifa: 15 Bs).'
+                                          : '${emp.fullName} en modalidad diaria (Tarifa: 18 Bs).',
+                                    ),
+                                    backgroundColor: val
+                                        ? Colors.green
+                                        : Colors.orange.shade800,
+                                    duration: const Duration(seconds: 2),
+                                  ),
+                                );
+                              },
+                            ),
+                            Text(
+                              emp.hasMonthlyPlan ? 'Plan 15 Bs' : 'Diario 18 Bs',
+                              style: TextStyle(
+                                fontSize: 10,
+                                fontWeight: FontWeight.w600,
+                                color: emp.hasMonthlyPlan
+                                    ? Colors.green
+                                    : Colors.grey.shade700,
+                              ),
+                            ),
+                          ],
                         ),
                       ],
                     ),
+                    if (emp.familiares.isNotEmpty) ...[
+                      const Divider(height: 20),
+                      Padding(
+                        padding: const EdgeInsets.only(left: 4, bottom: 6),
+                        child: Row(
+                          children: [
+                            const Icon(
+                              Icons.family_restroom,
+                              size: 16,
+                              color: Color(0xFF0D9488),
+                            ),
+                            const SizedBox(width: 6),
+                            Text(
+                              'Familiares registrados (${emp.familiares.length}):',
+                              style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.teal.shade900,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      ...emp.familiares.map((fam) {
+                        return Container(
+                          margin: const EdgeInsets.only(top: 6),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 8,
+                          ),
+                          decoration: BoxDecoration(
+                            color: fam.hasMonthlyPlan
+                                ? Colors.green.withValues(alpha: 0.08)
+                                : Colors.orange.withValues(alpha: 0.08),
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(
+                              color: fam.hasMonthlyPlan
+                                  ? Colors.green.withValues(alpha: 0.3)
+                                  : Colors.orange.withValues(alpha: 0.3),
+                            ),
+                          ),
+                          child: Row(
+                            children: [
+                              CircleAvatar(
+                                radius: 14,
+                                backgroundColor: fam.hasMonthlyPlan
+                                    ? Colors.green.withValues(alpha: 0.2)
+                                    : Colors.orange.withValues(alpha: 0.2),
+                                child: Icon(
+                                  fam.hasMonthlyPlan
+                                      ? Icons.star
+                                      : Icons.person_outline,
+                                  size: 14,
+                                  color: fam.hasMonthlyPlan
+                                      ? Colors.green
+                                      : Colors.orange,
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      '${fam.fullName} (${fam.parentesco})',
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.w600,
+                                        fontSize: 13,
+                                      ),
+                                    ),
+                                    Text(
+                                      'Tarifa: Bs. ${fam.tariffPrice.toStringAsFixed(2)} por plato (${fam.hasMonthlyPlan ? "Plan Mensual" : "Diario"})',
+                                      style: TextStyle(
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.w500,
+                                        color: fam.hasMonthlyPlan
+                                            ? Colors.green.shade800
+                                            : Colors.deepOrange,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              Column(
+                                children: [
+                                  Switch(
+                                    value: fam.hasMonthlyPlan,
+                                    activeThumbColor: Colors.green,
+                                    onChanged: (val) {
+                                      ref
+                                          .read(adminEmployeesProvider.notifier)
+                                          .toggleMonthlyPlan(
+                                            emp.id,
+                                            val,
+                                            familiarId: fam.id,
+                                          );
+                                      ScaffoldMessenger.of(
+                                        context,
+                                      ).showSnackBar(
+                                        SnackBar(
+                                          content: Text(
+                                            val
+                                                ? '${fam.fullName} (${fam.parentesco}) suscrito a Plan Mensual (Tarifa: 15 Bs).'
+                                                : '${fam.fullName} (${fam.parentesco}) en modalidad diaria (Tarifa: 18 Bs).',
+                                          ),
+                                          backgroundColor: val
+                                              ? Colors.green
+                                              : Colors.orange.shade800,
+                                          duration: const Duration(seconds: 2),
+                                        ),
+                                      );
+                                    },
+                                  ),
+                                  Text(
+                                    fam.hasMonthlyPlan
+                                        ? 'Plan 15 Bs'
+                                        : 'Diario 18 Bs',
+                                    style: TextStyle(
+                                      fontSize: 9.5,
+                                      fontWeight: FontWeight.w600,
+                                      color: fam.hasMonthlyPlan
+                                          ? Colors.green
+                                          : Colors.grey.shade700,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
+                        );
+                      }),
+                    ],
                   ],
                 ),
               );
@@ -1197,7 +1339,7 @@ class _AdminScreenState extends ConsumerState<AdminScreen>
                                             'nombres': '',
                                             'apellidos':
                                                 apellidosController.text,
-                                            'ci': '',
+                                            'telefono': '',
                                             'parentesco': 'Hijo',
                                           });
                                         });
@@ -1244,10 +1386,11 @@ class _AdminScreenState extends ConsumerState<AdminScreen>
                                               ],
                                               decoration: InputDecoration(
                                                 labelText:
-                                                    'CI Familiar #${i + 1}',
+                                                    'Telefono Familiar #${i + 1}',
                                                 isDense: true,
                                               ),
-                                              onChanged: (v) => fam['ci'] = v,
+                                              onChanged: (v) =>
+                                                  fam['telefono'] = v,
                                             ),
                                           ),
                                           IconButton(
@@ -1262,6 +1405,53 @@ class _AdminScreenState extends ConsumerState<AdminScreen>
                                             },
                                           ),
                                         ],
+                                      ),
+                                      const SizedBox(height: 8),
+                                      DropdownButtonFormField<String>(
+                                        initialValue:
+                                            const [
+                                              'Hijo',
+                                              'Hija',
+                                              'Esposo',
+                                              'Esposa',
+                                            ].contains(fam['parentesco'])
+                                            ? fam['parentesco']
+                                            : 'Hijo',
+                                        decoration: InputDecoration(
+                                          labelText:
+                                              'Parentesco Familiar #${i + 1}',
+                                          isDense: true,
+                                          contentPadding:
+                                              const EdgeInsets.symmetric(
+                                                horizontal: 10,
+                                                vertical: 8,
+                                              ),
+                                        ),
+                                        items: const [
+                                          DropdownMenuItem(
+                                            value: 'Hijo',
+                                            child: Text('Hijo'),
+                                          ),
+                                          DropdownMenuItem(
+                                            value: 'Hija',
+                                            child: Text('Hija'),
+                                          ),
+                                          DropdownMenuItem(
+                                            value: 'Esposo',
+                                            child: Text('Esposo'),
+                                          ),
+                                          DropdownMenuItem(
+                                            value: 'Esposa',
+                                            child: Text('Esposa'),
+                                          ),
+                                        ],
+                                        onChanged: (val) {
+                                          if (val != null) {
+                                            setModalState(() {
+                                              fam['parentesco'] = val;
+                                            });
+                                          }
+                                        },
                                       ),
                                     ],
                                   ),
@@ -1311,7 +1501,9 @@ class _AdminScreenState extends ConsumerState<AdminScreen>
                                     leading: const Icon(Icons.person_outline),
                                     title: Text(fam.fullName),
                                     subtitle: Text(
-                                      '${fam.parentesco} • CI: ${fam.ci}',
+                                      fam.telefono.isNotEmpty
+                                          ? '${fam.parentesco} • Tel: ${fam.telefono}'
+                                          : fam.parentesco,
                                     ),
                                     trailing: Wrap(
                                       children: [
@@ -1474,18 +1666,20 @@ class _AdminScreenState extends ConsumerState<AdminScreen>
                                           final fam = initialFamiliares[i];
                                           final famNombre =
                                               (fam['nombres'] ?? '').trim();
-                                          final famCi = (fam['ci'] ?? '')
-                                              .trim();
+                                          final famTelefono =
+                                              (fam['telefono'] ?? '').trim();
                                           if (famNombre.isEmpty ||
-                                              famCi.isEmpty) {
+                                              famTelefono.isEmpty) {
                                             showWarning(
-                                              'El familiar #${i + 1} tiene campos vacíos. Completa nombre y CI.',
+                                              'El familiar #${i + 1} tiene campos vacíos. Completa nombre y telefono.',
                                             );
                                             return;
                                           }
-                                          if (!numericRegex.hasMatch(famCi)) {
+                                          if (!numericRegex.hasMatch(
+                                            famTelefono,
+                                          )) {
                                             showWarning(
-                                              'El CI del familiar #${i + 1} solo permite números.',
+                                              'El telefono del familiar #${i + 1} solo permite números.',
                                             );
                                             return;
                                           }
@@ -1636,7 +1830,9 @@ class _AdminScreenState extends ConsumerState<AdminScreen>
     final apellidosController = TextEditingController(
       text: familiar?.apellidos ?? '',
     );
-    final ciController = TextEditingController(text: familiar?.ci ?? '');
+    final telefonoController = TextEditingController(
+      text: familiar?.telefono ?? '',
+    );
     String parentesco = familiar?.parentesco ?? 'Hijo';
     String? dialogError;
 
@@ -1710,8 +1906,8 @@ class _AdminScreenState extends ConsumerState<AdminScreen>
                 ),
                 const SizedBox(height: 10),
                 TextField(
-                  controller: ciController,
-                  keyboardType: TextInputType.number,
+                  controller: telefonoController,
+                  keyboardType: TextInputType.phone,
                   inputFormatters: [FilteringTextInputFormatter.digitsOnly],
                   onChanged: (_) {
                     if (dialogError != null) {
@@ -1719,20 +1915,27 @@ class _AdminScreenState extends ConsumerState<AdminScreen>
                     }
                   },
                   decoration: const InputDecoration(
-                    labelText: 'Cédula de Identidad (CI)',
+                    labelText: 'Número de Teléfono',
+                    prefixIcon: Icon(Icons.phone_outlined),
                   ),
                 ),
                 const SizedBox(height: 10),
                 DropdownButtonFormField<String>(
-                  initialValue: parentesco,
+                  initialValue:
+                      const [
+                        'Hijo',
+                        'Hija',
+                        'Esposo',
+                        'Esposa',
+                      ].contains(parentesco)
+                      ? parentesco
+                      : 'Hijo',
                   decoration: const InputDecoration(labelText: 'Parentesco'),
                   items: const [
                     DropdownMenuItem(value: 'Hijo', child: Text('Hijo')),
                     DropdownMenuItem(value: 'Hija', child: Text('Hija')),
-                    DropdownMenuItem(value: 'Cónyuge', child: Text('Cónyuge')),
-                    DropdownMenuItem(value: 'Padre', child: Text('Padre')),
-                    DropdownMenuItem(value: 'Madre', child: Text('Madre')),
-                    DropdownMenuItem(value: 'Hermano', child: Text('Hermano')),
+                    DropdownMenuItem(value: 'Esposo', child: Text('Esposo')),
+                    DropdownMenuItem(value: 'Esposa', child: Text('Esposa')),
                   ],
                   onChanged: (val) {
                     if (val != null) {
@@ -1752,17 +1955,17 @@ class _AdminScreenState extends ConsumerState<AdminScreen>
               onPressed: () async {
                 final nombres = nombresController.text.trim();
                 final apellidos = apellidosController.text.trim();
-                final ci = ciController.text.trim();
+                final telefono = telefonoController.text.trim();
 
-                if (nombres.isEmpty || apellidos.isEmpty || ci.isEmpty) {
+                if (nombres.isEmpty || apellidos.isEmpty || telefono.isEmpty) {
                   setDialogState(() {
                     dialogError =
-                        'No se permite asociar un familiar con campos vacíos. Completa Nombres, Apellidos y CI.';
+                        'No se permite asociar un familiar con campos vacíos. Completa Nombres, Apellidos y Teléfono.';
                   });
                   ScaffoldMessenger.of(context).showSnackBar(
                     const SnackBar(
                       content: Text(
-                        'No se permite asociar un familiar con campos vacíos. Completa Nombres, Apellidos y CI.',
+                        'No se permite asociar un familiar con campos vacíos. Completa Nombres, Apellidos y Teléfono.',
                       ),
                       backgroundColor: Colors.red,
                     ),
@@ -1770,13 +1973,16 @@ class _AdminScreenState extends ConsumerState<AdminScreen>
                   return;
                 }
 
-                if (!RegExp(r'^[0-9]+$').hasMatch(ci)) {
+                if (!RegExp(r'^[0-9]+$').hasMatch(telefono)) {
                   setDialogState(() {
-                    dialogError = 'El CI del familiar solo permite números.';
+                    dialogError =
+                        'El teléfono del familiar solo permite números.';
                   });
                   ScaffoldMessenger.of(context).showSnackBar(
                     const SnackBar(
-                      content: Text('El CI del familiar solo permite números.'),
+                      content: Text(
+                        'El teléfono del familiar solo permite números.',
+                      ),
                       backgroundColor: Colors.red,
                     ),
                   );
@@ -1789,7 +1995,7 @@ class _AdminScreenState extends ConsumerState<AdminScreen>
                     ? await notifier.updateFamiliarForEmployee(
                         employeeId: employeeId,
                         familiar: familiar.copyWith(
-                          ci: ci,
+                          telefono: telefono,
                           nombres: nombres,
                           apellidos: apellidos,
                           parentesco: parentesco,
@@ -1797,7 +2003,7 @@ class _AdminScreenState extends ConsumerState<AdminScreen>
                       )
                     : await notifier.addFamiliarToEmployee(
                         employeeId: employeeId,
-                        ci: ci,
+                        telefono: telefono,
                         nombres: nombres,
                         apellidos: apellidos,
                         parentesco: parentesco,

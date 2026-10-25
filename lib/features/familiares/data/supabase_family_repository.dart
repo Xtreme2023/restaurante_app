@@ -3,6 +3,7 @@ import 'package:restaurante_app/core/config/supabase_config.dart';
 import 'package:restaurante_app/features/familiares/domain/familiar_entity.dart';
 import 'package:restaurante_app/features/familiares/domain/family_policy.dart';
 import 'package:restaurante_app/features/familiares/domain/family_repository.dart';
+import 'package:restaurante_app/supabase/usuarios_service.dart';
 
 class SupabaseFamilyRepository implements FamilyRepository {
   /// Datos de familiares precargados para pruebas y modo offline.
@@ -95,21 +96,27 @@ class SupabaseFamilyRepository implements FamilyRepository {
     }
 
     try {
-      final response = await client
-          .from('familiares')
-          .select()
-          .eq('empleado_id', empleadoId)
-          .eq('activo', true)
-          .limit(FamilyPolicy.maxFamilyMembersPerEmployee);
-
-      final List<dynamic> data = response as List<dynamic>;
-      if (data.isEmpty) {
+      final rawFamiliares =
+          await UsuariosService.getFamiliaresByUsuario(empleadoId);
+      if (rawFamiliares.isEmpty) {
         return [];
       }
 
-      final list = data
-          .map((item) => Familiar.fromJson(item as Map<String, dynamic>))
-          .toList();
+      final list = rawFamiliares.map((f) {
+        final persona = f['persona'] as Map<String, dynamic>?;
+        return Familiar(
+          id: (f['id_familiar'] ?? f['id'] ?? '').toString(),
+          empleadoId: (f['id_usuario'] ?? empleadoId).toString(),
+          ci: '',
+          telefono: (persona?['telefono'] ?? f['telefono'] ?? '').toString(),
+          nombres: (persona?['nombre'] ?? f['nombres'] ?? f['nombre'] ?? '')
+              .toString(),
+          apellidos:
+              (persona?['apellidos'] ?? f['apellidos'] ?? '').toString(),
+          parentesco: f['parentesco']?.toString() ?? 'Hijo',
+          activo: f['activo'] != false,
+        );
+      }).toList();
 
       return FamilyPolicy.enforceLimit(list);
     } catch (e) {

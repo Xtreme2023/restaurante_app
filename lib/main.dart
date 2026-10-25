@@ -1,18 +1,26 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:restaurante_app/core/config/supabase_config.dart';
 import 'package:restaurante_app/core/layout/admin_shell.dart';
 import 'package:restaurante_app/core/layout/kitchen_shell.dart';
 import 'package:restaurante_app/core/layout/main_layout.dart';
 import 'package:restaurante_app/core/theme/app_theme.dart';
 import 'package:restaurante_app/features/auth/presentation/login_screen.dart';
 import 'package:restaurante_app/features/auth/presentation/providers/auth_provider.dart';
+import 'package:restaurante_app/supabase/supabase_client.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Inicialización tolerante a fallos de Supabase
-  await SupabaseConfig.initialize();
+  // Carga de variables de entorno con fallback seguro
+  try {
+    await dotenv.load(fileName: ".env");
+  } catch (e) {
+    debugPrint('Nota: Carga de .env omitida o fallida ($e). Usando valores predeterminados.');
+  }
+
+  // Inicializar cliente de Supabase
+  await initSupabase();
 
   runApp(const ProviderScope(child: RestauranteApp()));
 }

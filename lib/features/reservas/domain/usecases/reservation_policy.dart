@@ -68,7 +68,7 @@ class ReservationPolicy {
     }
 
     // Regla 4: Bloqueo Horario para reservas del mismo día
-    // Si es hoy, el límite estricto son las 9:00 AM (9:01 ya no es permitido)
+    // Si es hoy, el límite es hasta las 9:00 AM (9:01 ya no es permitido)
     if (_isSameDay(target, today)) {
       if (currentTime.hour > 9 ||
           (currentTime.hour == 9 && currentTime.minute > 0)) {
@@ -109,13 +109,13 @@ class ReservationPolicy {
     }
 
     // Regla 2: Bloqueo Horario para cancelaciones del mismo día
-    // Permitir cancelación solo antes de las 8:59 AM (a partir de las 9:00 AM ya no)
+    // Permitir cancelación solo antes de las 9:00 AM del día de la reserva (hasta 8:59 AM)
     if (_isSameDay(target, today)) {
       if (currentTime.hour >= 9) {
         return const PolicyCheckResult(
           isAllowed: false,
           message:
-              'El plazo de cancelación para hoy venció a las 8:59 AM (compras en curso).',
+              'El plazo de cancelación para hoy venció a las 8:59 AM (límite 9:00 AM).',
         );
       }
     }

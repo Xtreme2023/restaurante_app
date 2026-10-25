@@ -244,6 +244,37 @@ class _MyReservationsScreenState extends ConsumerState<MyReservationsScreen>
                                 fontStyle: FontStyle.italic,
                               ),
                             ),
+                          if (res.isForFamiliar)
+                            Container(
+                              margin: const EdgeInsets.only(top: 4, bottom: 2),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 8,
+                                vertical: 3,
+                              ),
+                              decoration: BoxDecoration(
+                                color: Colors.purple.withValues(alpha: 0.1),
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  const Icon(
+                                    Icons.family_restroom,
+                                    size: 14,
+                                    color: Colors.purple,
+                                  ),
+                                  const SizedBox(width: 4),
+                                  Text(
+                                    'Para: ${res.displayName}',
+                                    style: const TextStyle(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.bold,
+                                      color: Colors.purple,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
                           Text(
                             'Modalidad: ${res.type == 'pension' ? 'Pensión Mensual' : 'Reserva Diaria'}',
                             style: TextStyle(
@@ -405,13 +436,24 @@ class _MyReservationsScreenState extends ConsumerState<MyReservationsScreen>
         .read(userReservationsProvider.notifier)
         .cancelReservation(reservationId);
 
-    if (mounted && success) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Reserva cancelada con éxito.'),
-          backgroundColor: Colors.redAccent,
-        ),
-      );
+    if (mounted) {
+      if (success) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Reserva cancelada con éxito.'),
+            backgroundColor: Colors.redAccent,
+          ),
+        );
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'No se pudo cancelar. Solo es posible cancelar antes de las 9:00 AM del día de la reserva.',
+            ),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
     }
   }
 
@@ -470,13 +512,21 @@ class _MyReservationsScreenState extends ConsumerState<MyReservationsScreen>
                     ),
                   ),
                   const SizedBox(height: 8),
-                  Text(
-                    'CÓDIGO: #${res.id.toUpperCase().replaceAll('-', '').substring(0, 8)}',
-                    style: const TextStyle(
-                      fontFamily: 'monospace',
-                      fontWeight: FontWeight.bold,
-                      letterSpacing: 2,
-                    ),
+                  Builder(
+                    builder: (context) {
+                      final cleanCode = res.id.toUpperCase().replaceAll('-', '');
+                      final displayCode = cleanCode.length >= 8
+                          ? cleanCode.substring(0, 8)
+                          : cleanCode.padLeft(8, '0');
+                      return Text(
+                        'CÓDIGO: #$displayCode',
+                        style: const TextStyle(
+                          fontFamily: 'monospace',
+                          fontWeight: FontWeight.bold,
+                          letterSpacing: 2,
+                        ),
+                      );
+                    },
                   ),
                 ],
               ),
@@ -484,9 +534,12 @@ class _MyReservationsScreenState extends ConsumerState<MyReservationsScreen>
             const SizedBox(height: 16),
             ListTile(
               dense: true,
-              leading: const Icon(Icons.person),
-              title: const Text('Comensal'),
-              subtitle: Text(res.userName),
+              leading: Icon(
+                res.isForFamiliar ? Icons.family_restroom : Icons.person,
+                color: res.isForFamiliar ? Colors.purple : null,
+              ),
+              title: Text(res.isForFamiliar ? 'Beneficiario (Familiar)' : 'Comensal'),
+              subtitle: Text(res.displayName),
             ),
             ListTile(
               dense: true,

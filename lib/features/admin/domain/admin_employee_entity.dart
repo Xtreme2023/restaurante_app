@@ -72,9 +72,9 @@ class AdminEmployee {
     List<Familiar> familiares = const [],
   }) {
     return AdminEmployee(
-      id: json['id']?.toString() ?? '',
-      ci: json['ci']?.toString() ?? '',
-      nombres: json['nombres']?.toString() ?? '',
+      id: json['id_usuario']?.toString() ?? json['id']?.toString() ?? '',
+      ci: json['ci_codigo']?.toString() ?? json['ci']?.toString() ?? '',
+      nombres: json['nombre']?.toString() ?? json['nombres']?.toString() ?? '',
       apellidos: json['apellidos']?.toString() ?? '',
       email: json['email']?.toString() ?? '',
       telefono: json['telefono']?.toString() ?? '',
@@ -85,9 +85,14 @@ class AdminEmployee {
           json['hasMonthlyPlan'] == true,
       activo: json['activo'] != false,
       familiares: familiares,
-      creadoEn: json['creado_en'] != null
-          ? DateTime.tryParse(json['creado_en'].toString()) ?? DateTime.now()
-          : DateTime.now(),
+      creadoEn: json['created_at'] != null
+          ? DateTime.tryParse(json['created_at'].toString()) ??
+              (json['creado_en'] != null
+                  ? DateTime.tryParse(json['creado_en'].toString()) ?? DateTime.now()
+                  : DateTime.now())
+          : (json['creado_en'] != null
+              ? DateTime.tryParse(json['creado_en'].toString()) ?? DateTime.now()
+              : DateTime.now()),
     );
   }
 

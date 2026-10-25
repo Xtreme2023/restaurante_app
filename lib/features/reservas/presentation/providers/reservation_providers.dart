@@ -6,6 +6,7 @@ import 'package:restaurante_app/features/reservas/domain/holiday_entity.dart';
 import 'package:restaurante_app/features/reservas/domain/reservation_entity.dart';
 import 'package:restaurante_app/features/reservas/domain/reservation_repository.dart';
 import 'package:restaurante_app/features/reservas/domain/usecases/reservation_policy.dart';
+import 'package:restaurante_app/core/utils/date_utils.dart';
 import 'package:uuid/uuid.dart';
 
 /// Proveedor del repositorio de reservas
@@ -136,6 +137,32 @@ class UserReservationsNotifier extends Notifier<List<Reservation>> {
     String userId = 'demo-user-123',
   }) async {
     try {
+      final now = DateTime.now();
+      final todayDate = DateTime(now.year, now.month, now.day);
+      final targetDate = DateTime(date.year, date.month, date.day);
+      if (targetDate.isBefore(todayDate)) {
+        debugPrint('⛔ No se permite reservar para una fecha pasada.');
+        return false;
+      }
+      if (AppDateUtils.isSameDay(targetDate, todayDate) &&
+          (now.hour > 9 || (now.hour == 9 && now.minute > 0))) {
+        debugPrint('⛔ Solo se puede reservar hasta las 9:00 AM del día de la reserva.');
+        return false;
+      }
+
+      // Validar: Máximo una reserva activa por persona / familiar por día
+      final alreadyReserved = state.any((r) =>
+          AppDateUtils.isSameDay(r.date, date) &&
+          r.status.toLowerCase() != 'cancelada' &&
+          (familiarId != null
+              ? r.familiarId == familiarId
+              : (!r.isForFamiliar && r.familiarId == null)));
+
+      if (alreadyReserved) {
+        debugPrint('⛔ Ya existe una reserva activa para este comensal en esta fecha.');
+        return false;
+      }
+
       final repo = ref.read(reservationRepositoryProvider);
       final finalDishName =
           dishName ??
@@ -183,12 +210,26 @@ class UserReservationsNotifier extends Notifier<List<Reservation>> {
         ReservationMenuCategory.almuerzoCompleto,
     required bool reserveForEmployee,
     required List<String> selectedFamiliarIds,
-    required Map<String, String> familiarNames,
+    Map<String, String> familiarNames = const {},
     required double pricePerPerson,
+    Map<String?, double>? individualPrices,
     String? notes,
     String userName = 'Empleado',
     String userId = 'demo-user-123',
   }) async {
+    final now = DateTime.now();
+    final todayDate = DateTime(now.year, now.month, now.day);
+    final targetDate = DateTime(date.year, date.month, date.day);
+    if (targetDate.isBefore(todayDate)) {
+      debugPrint('⛔ No se permite reservar para una fecha pasada.');
+      return 0;
+    }
+    if (AppDateUtils.isSameDay(targetDate, todayDate) &&
+        (now.hour > 9 || (now.hour == 9 && now.minute > 0))) {
+      debugPrint('⛔ Solo se puede reservar hasta las 9:00 AM del día de la reserva.');
+      return 0;
+    }
+
     int count = 0;
     final repo = ref.read(reservationRepositoryProvider);
     final List<Reservation> createdList = [];
@@ -199,7 +240,16 @@ class UserReservationsNotifier extends Notifier<List<Reservation>> {
               ? 'Almuerzo Completo (${entradaNombre ?? "Ensalada Fresca del Día"} + $sopaNombre + $platoPrincipal)'
               : 'Almuerzo Completo del Día');
 
-    if (reserveForEmployee) {
+    final empAlreadyReserved = state.any((r) =>
+        AppDateUtils.isSameDay(r.date, date) &&
+        r.status.toLowerCase() != 'cancelada' &&
+        !r.isForFamiliar &&
+        r.familiarId == null);
+
+    if (reserveForEmployee && !empAlreadyReserved) {
+      final empPrice = individualPrices != null
+          ? (individualPrices[null] ?? pricePerPerson)
+          : pricePerPerson;
       final res = Reservation(
         id: const Uuid().v4(),
         userId: userId,
@@ -212,9 +262,9 @@ class UserReservationsNotifier extends Notifier<List<Reservation>> {
         isAlmuerzoCompleto: isAlmuerzoCompleto,
         menuCategory: menuCategory,
         date: date,
-        type: pricePerPerson == 15.0 ? 'pension' : 'diaria',
+        type: empPrice == 15.0 ? 'pension' : 'diaria',
         status: 'confirmada',
-        price: pricePerPerson,
+        price: empPrice,
         notes: notes,
         createdAt: DateTime.now(),
       );
@@ -224,7 +274,17 @@ class UserReservationsNotifier extends Notifier<List<Reservation>> {
     }
 
     for (final famId in selectedFamiliarIds) {
+      final famAlreadyReserved = state.any((r) =>
+          AppDateUtils.isSameDay(r.date, date) &&
+          r.status.toLowerCase() != 'cancelada' &&
+          r.familiarId == famId);
+
+      if (famAlreadyReserved) continue;
+
       final famName = familiarNames[famId] ?? 'Familiar';
+      final famPrice = individualPrices != null
+          ? (individualPrices[famId] ?? pricePerPerson)
+          : pricePerPerson;
       final res = Reservation(
         id: const Uuid().v4(),
         userId: userId,
@@ -238,9 +298,9 @@ class UserReservationsNotifier extends Notifier<List<Reservation>> {
         isAlmuerzoCompleto: isAlmuerzoCompleto,
         menuCategory: menuCategory,
         date: date,
-        type: pricePerPerson == 15.0 ? 'pension' : 'diaria',
+        type: famPrice == 15.0 ? 'pension' : 'diaria',
         status: 'confirmada',
-        price: pricePerPerson,
+        price: famPrice,
         notes: notes,
         createdAt: DateTime.now(),
       );
@@ -255,6 +315,28 @@ class UserReservationsNotifier extends Notifier<List<Reservation>> {
 
   Future<bool> cancelReservation(String reservationId) async {
     try {
+      final now = DateTime.now();
+      final todayDate = DateTime(now.year, now.month, now.day);
+      final targetRes = state.where((r) => r.id == reservationId).firstOrNull;
+      if (targetRes != null) {
+        final targetDate = DateTime(
+          targetRes.date.year,
+          targetRes.date.month,
+          targetRes.date.day,
+        );
+        if (targetDate.isBefore(todayDate)) {
+          debugPrint('⛔ No se puede cancelar una reserva de días pasados.');
+          return false;
+        }
+        if (AppDateUtils.isSameDay(targetDate, todayDate) &&
+            (now.hour > 9 || (now.hour == 9 && now.minute > 0))) {
+          debugPrint(
+            '⛔ Solo se puede cancelar antes de las 9:00 AM del día de la reserva.',
+          );
+          return false;
+        }
+      }
+
       final repo = ref.read(reservationRepositoryProvider);
       await repo.cancelReservation(reservationId);
       state = state.map((r) {
@@ -265,6 +347,7 @@ class UserReservationsNotifier extends Notifier<List<Reservation>> {
       }).toList();
       return true;
     } catch (e) {
+      debugPrint('⚠️ Error al cancelar reserva: $e');
       return false;
     }
   }

@@ -1,24 +1,17 @@
 import 'package:flutter/foundation.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:uuid/uuid.dart';
 import 'package:restaurante_app/core/config/supabase_config.dart';
 import 'package:restaurante_app/features/admin/domain/admin_employee_entity.dart';
 import 'package:restaurante_app/features/familiares/data/supabase_family_repository.dart';
 import 'package:restaurante_app/features/familiares/domain/familiar_entity.dart';
 import 'package:restaurante_app/features/familiares/domain/family_policy.dart';
+import 'package:restaurante_app/supabase/usuarios_service.dart';
 
 class SupabaseAdminRepository {
   bool lastCreatedUserRequiresEmailConfirmation = false;
 
   String _databaseParentesco(String parentesco) {
-    switch (parentesco.trim()) {
-      case 'Hijo/a':
-        return 'Hijo';
-      case 'Hermano/a':
-        return 'Hermano';
-      default:
-        return parentesco.trim();
-    }
+    return UsuariosService.normalizeParentesco(parentesco);
   }
 
   // Almacén en memoria de empleados y sus familiares asociados para demo y modo local
@@ -137,13 +130,18 @@ class SupabaseAdminRepository {
   Future<List<Map<String, dynamic>>> getPasswordResetRequests() async {
     final client = SupabaseConfig.client;
     if (client == null) return const [];
-    final response = await client
-        .from('password_reset_requests')
-        .select()
-        .order('created_at', ascending: false);
-    return (response as List)
-        .map((item) => Map<String, dynamic>.from(item as Map))
-        .toList();
+    try {
+      final response = await client
+          .from('password_reset_requests')
+          .select()
+          .order('created_at', ascending: false);
+      return (response as List)
+          .map((item) => Map<String, dynamic>.from(item as Map))
+          .toList();
+    } catch (_) {
+      // Retornar lista vacía si la tabla no existe en Supabase (evita 404 en la app)
+      return const [];
+    }
   }
 
   Future<void> updatePasswordResetRequest({
@@ -160,7 +158,7 @@ class SupabaseAdminRepository {
     );
   }
 
-  /// Obtiene la lista completa de empleados con sus familiares
+  /// Obtiene la lista completa de empleados con sus familiares consultando la VIEW `vista_usuarios`
   Future<List<AdminEmployee>> getEmployees() async {
     final client = SupabaseConfig.client;
     if (client == null) {
@@ -168,29 +166,72 @@ class SupabaseAdminRepository {
     }
 
     try {
-      final res = await client
-          .from('usuarios')
-          .select('*, familiares(*)')
-          .order('creado_en', ascending: false);
-
-      final List<dynamic> data = res as List<dynamic>;
+      final data = await UsuariosService.getUsuarios();
       if (data.isEmpty) {
         return const [];
       }
 
-      return data.map((item) {
-        final map = Map<String, dynamic>.from(item as Map);
-        final rawFamilires = map['familiares'] as List<dynamic>? ?? [];
-        final familiares = rawFamilires
-            .map((f) => Familiar.fromJson(Map<String, dynamic>.from(f as Map)))
-            .toList();
-        return AdminEmployee.fromJson(map, familiares: familiares);
-      }).toList();
+      Set<String> pensionedUserIds = {};
+      Set<String> pensionedFamiliarIds = {};
+      try {
+        final pensionRes = await client
+            .from('pension')
+            .select('id_usuario, id_familiar, modalidad')
+            .eq('modalidad', 'Pensionado');
+        for (final row in (pensionRes as List<dynamic>)) {
+          final uId = row['id_usuario']?.toString();
+          final fId = row['id_familiar']?.toString();
+          if (fId != null && fId.isNotEmpty) {
+            pensionedFamiliarIds.add(fId);
+          } else if (uId != null && uId.isNotEmpty) {
+            pensionedUserIds.add(uId);
+          }
+        }
+      } catch (e) {
+        debugPrint('ℹ️ No se pudo cargar estado de pensiones: $e');
+      }
+
+      final List<AdminEmployee> employees = [];
+      for (final item in data) {
+        final idUsuario = (item['id_usuario'] ?? item['id'] ?? '').toString();
+
+        List<Familiar> familiares = [];
+        try {
+          final rawFamiliares = await UsuariosService.getFamiliaresByUsuario(
+            idUsuario,
+          );
+          familiares = rawFamiliares.map((f) {
+            final persona = f['persona'] as Map<String, dynamic>?;
+            final famId = (f['id_familiar'] ?? f['id'] ?? '').toString();
+            return Familiar(
+              id: famId,
+              empleadoId: idUsuario,
+              ci: '',
+              telefono: (persona?['telefono'] ?? f['telefono'] ?? '')
+                  .toString(),
+              nombres: (persona?['nombre'] ?? f['nombres'] ?? f['nombre'] ?? '')
+                  .toString(),
+              apellidos: (persona?['apellidos'] ?? f['apellidos'] ?? '')
+                  .toString(),
+              parentesco: f['parentesco']?.toString() ?? 'Hijo',
+              activo: f['activo'] != false,
+              hasMonthlyPlan: pensionedFamiliarIds.contains(famId),
+            );
+          }).toList();
+        } catch (_) {}
+
+        final emp = AdminEmployee.fromJson(item, familiares: familiares);
+        employees.add(emp.copyWith(
+          hasMonthlyPlan:
+              pensionedUserIds.contains(idUsuario) || emp.hasMonthlyPlan,
+        ));
+      }
+      return employees;
     } catch (e) {
-      debugPrint('⚠️ Error obteniendo empleados de Supabase: $e');
+      debugPrint('⚠️ Error obteniendo empleados desde vista_usuarios: $e');
       throw Exception(
-        'No se pudo cargar el padrón de empleados desde Supabase. '
-        'Verifica la migración y los permisos RLS. Detalle: $e',
+        'No se pudo cargar el padrón de empleados desde la vista vista_usuarios. '
+        'Detalle: $e',
       );
     }
   }
@@ -241,7 +282,8 @@ class SupabaseAdminRepository {
           Familiar(
             id: 'fam-$newId-${famIndex++}',
             empleadoId: newId,
-            ci: famData['ci'] ?? '',
+            ci: '',
+            telefono: famData['telefono'] ?? famData['ci'] ?? '',
             nombres: famData['nombres'] ?? '',
             apellidos: famData['apellidos'] ?? apellidos,
             parentesco: famData['parentesco'] ?? 'Familiar',
@@ -279,60 +321,42 @@ class SupabaseAdminRepository {
     }
 
     try {
-      final existingByCi = await client
-          .from('usuarios')
-          .select('id')
-          .eq('ci', trimmedCi)
-          .maybeSingle();
-      if (existingByCi != null) {
-        throw Exception(
-          'El usuario ya está registrado con la cédula de identidad (CI) $trimmedCi.',
-        );
-      }
-
-      final existingByEmail = await client
-          .from('usuarios')
-          .select('id')
-          .eq('email', trimmedEmail)
-          .maybeSingle();
-      if (existingByEmail != null) {
-        throw Exception(
-          'El usuario ya está registrado con el correo institucional $trimmedEmail.',
-        );
-      }
-
-      final response = await client.functions.invoke(
-        'create-employee',
-        body: {
-          'ci': trimmedCi,
-          'nombres': nombres,
-          'apellidos': apellidos,
-          'email': trimmedEmail,
-          'password': password,
-          'telefono': telefono,
-          'departamento': departamento,
-          'hasMonthlyPlan': hasMonthlyPlan,
-          'familiares': addedFamiliares
-              .map(
-                (family) => {
-                  'ci': family.ci,
-                  'nombres': family.nombres,
-                  'apellidos': family.apellidos,
-                  'parentesco': _databaseParentesco(family.parentesco),
-                },
-              )
-              .toList(),
-        },
+      // 1. Registro usando UsuariosService con auth.signUp y trigger on_auth_user_created
+      final cleanPassword = password.trim().isNotEmpty
+          ? password.trim()
+          : '123456';
+      final authResponse = await UsuariosService.registerUser(
+        email: trimmedEmail,
+        password: cleanPassword,
+        nombre: nombres,
+        apellidos: apellidos,
+        ciCodigo: trimmedCi,
+        telefono: telefono,
+        rol: 'Empleado',
       );
-      final responseData = Map<String, dynamic>.from(response.data as Map);
-      if (responseData['error'] != null) {
-        throw Exception(responseData['error'].toString());
+
+      final user = authResponse.user;
+      if (user == null) {
+        throw Exception('No se pudo registrar la cuenta en Supabase Auth.');
       }
-      newId = responseData['id']?.toString() ?? '';
-      if (newId.isEmpty) {
-        throw Exception('La función no devolvió el ID del empleado.');
-      }
+      newId = user.id;
       lastCreatedUserRequiresEmailConfirmation = false;
+
+      // 2. Registrar familiares asociados si fueron definidos
+      for (final family in addedFamiliares) {
+        try {
+          await UsuariosService.createFamiliar(
+            idUsuario: newId,
+            parentesco: _databaseParentesco(family.parentesco),
+            nombre: family.nombres,
+            apellidos: family.apellidos,
+            telefono: family.telefono,
+          );
+        } catch (fErr) {
+          debugPrint('Aviso: no se pudo registrar familiar: $fErr');
+        }
+      }
+
       newEmployee = newEmployee.copyWith(
         id: newId,
         familiares: newEmployee.familiares
@@ -340,37 +364,17 @@ class SupabaseAdminRepository {
             .toList(),
       );
     } catch (e) {
-      debugPrint('⚠️ Error registrando empleado en Supabase: $e');
-      if (e is Exception &&
-          e.toString().startsWith('Exception: El usuario ya está registrado')) {
-        rethrow;
-      }
-      if (e is PostgrestException && e.code == '23505') {
-        final field = e.message.contains('usuarios_email_key')
-            ? 'correo institucional'
-            : 'cédula de identidad (CI)';
-        throw Exception('El usuario ya está registrado con ese $field.');
-      }
-      if (e.toString().contains('invalid input value for enum parentesco')) {
-        throw Exception(
-          'La base de datos todavía usa un enum incompatible para parentesco. '
-          'Ejecuta en Supabase la migración '
-          'supabase/migrations/20261023_fix_parentesco_type.sql '
-          'y vuelve a intentar.',
-        );
-      }
-      throw Exception(
-        'No se pudo guardar el empleado en Supabase. '
-        'Ejecuta la migración 20261023_employee_profile_fields.sql '
-        'y verifica los permisos RLS. Detalle: $e',
+      debugPrint(
+        '⚠️ Error registrando empleado con trigger on_auth_user_created: $e',
       );
+      rethrow;
     }
 
     _employees.insert(0, newEmployee);
     return newEmployee;
   }
 
-  /// Actualiza los datos de un empleado
+  /// Actualiza los datos de un empleado utilizando UsuariosService
   Future<void> updateEmployee(AdminEmployee updated) async {
     final index = _employees.indexWhere((e) => e.id == updated.id);
     if (index != -1) {
@@ -380,33 +384,15 @@ class SupabaseAdminRepository {
     final client = SupabaseConfig.client;
     if (client != null && SupabaseConfig.isInitialized) {
       try {
-        await client
-            .from('usuarios')
-            .update({
-              'ci': updated.ci,
-              'nombres': updated.nombres,
-              'apellidos': updated.apellidos,
-              'email': updated.email,
-              'telefono': updated.telefono,
-              'departamento': updated.departamento,
-              'has_monthly_plan': updated.hasMonthlyPlan,
-            })
-            .eq('id', updated.id);
-      } catch (e) {
-        debugPrint(
-          '⚠️ Error actualizando empleado en usuarios: $e. Intentando profiles...',
+        await UsuariosService.updateUserProfile(
+          idUsuario: updated.id,
+          nombre: updated.nombres,
+          apellidos: updated.apellidos,
+          telefono: updated.telefono,
+          ciCodigo: updated.ci,
         );
-        try {
-          await client
-              .from('profiles')
-              .update({
-                'email': updated.email,
-                'full_name': '${updated.nombres} ${updated.apellidos}',
-                'department': updated.departamento,
-                'is_pensioner': updated.hasMonthlyPlan,
-              })
-              .eq('id', updated.id);
-        } catch (_) {}
+      } catch (e) {
+        debugPrint('⚠️ Error actualizando empleado en UsuariosService: $e');
       }
     }
   }
@@ -434,7 +420,7 @@ class SupabaseAdminRepository {
         await client.rpc('limpiar_datos_prueba');
       } catch (e) {
         debugPrint(
-          'ℹ️ RPC limpiar_datos_prueba no disponible, borrado directo en tablas: $e',
+          'ℹ️ RPC limpiar_datos_prueba no disponible, borrado seguro: $e',
         );
         final testIds = [
           'demo-user-123',
@@ -444,56 +430,16 @@ class SupabaseAdminRepository {
           'demo-emp-003',
           'demo-emp-004',
         ];
-        final testEmails = [
-          'juan.empleado@institucion.gob.bo',
-          'roberto.flores@institucion.gob.bo',
-          'claudia.gutierrez@institucion.gob.bo',
-          'gonzalo.mamani@institucion.gob.bo',
-          'admin.rrhh@institucion.gob.bo',
-          'admin@institucion.gob.bo',
-          'carlos.chef@restaurante.com',
-          'chef@restaurante.com',
-          'maria.empleado@test.com',
-          'admin.rrhh@test.com',
-          'cocina.turno@test.com',
-        ];
 
         for (final uid in testIds) {
+          try {
+            await UsuariosService.deleteUser(uid);
+          } catch (_) {}
           try {
             await client.from('reservas').delete().eq('empleado_id', uid);
           } catch (_) {}
           try {
             await client.from('reservations').delete().eq('user_id', uid);
-          } catch (_) {}
-          try {
-            await client.from('familiares').delete().eq('empleado_id', uid);
-          } catch (_) {}
-          try {
-            await client.from('suscripciones').delete().eq('empleado_id', uid);
-          } catch (_) {}
-          try {
-            await client
-                .from('monthly_subscriptions')
-                .delete()
-                .eq('user_id', uid);
-          } catch (_) {}
-          try {
-            await client.from('menu_semanal').delete().eq('creado_por', uid);
-          } catch (_) {}
-          try {
-            await client.from('usuarios').delete().eq('id', uid);
-          } catch (_) {}
-          try {
-            await client.from('profiles').delete().eq('id', uid);
-          } catch (_) {}
-        }
-
-        for (final email in testEmails) {
-          try {
-            await client.from('usuarios').delete().eq('email', email);
-          } catch (_) {}
-          try {
-            await client.from('profiles').delete().eq('email', email);
           } catch (_) {}
         }
       }
@@ -506,7 +452,7 @@ class SupabaseAdminRepository {
     };
   }
 
-  /// Elimina un empleado
+  /// Elimina un empleado mediante UsuariosService
   Future<void> deleteEmployee(String employeeId) async {
     final client = SupabaseConfig.client;
     if (client == null || !SupabaseConfig.isInitialized) {
@@ -515,16 +461,12 @@ class SupabaseAdminRepository {
     }
 
     try {
-      await client.rpc(
-        'delete_employee_account',
-        params: {'p_employee_id': employeeId},
-      );
+      await UsuariosService.deleteUser(employeeId);
       _employees.removeWhere((e) => e.id == employeeId);
     } catch (e) {
-      debugPrint('⚠️ Error al eliminar empleado en Supabase: $e');
+      debugPrint('⚠️ Error al eliminar empleado: $e');
       throw Exception(
         'No se pudo eliminar el empleado en Supabase. '
-        'Verifica que ejecutaste la migración de eliminación de cuentas. '
         'Detalle: $e',
       );
     }
@@ -544,24 +486,15 @@ class SupabaseAdminRepository {
     final client = SupabaseConfig.client;
     if (client != null) {
       try {
-        await client.from('familiares').insert({
-          'empleado_id': employeeId,
-          'ci': familiar.ci,
-          'nombres': familiar.nombres,
-          'apellidos': familiar.apellidos,
-          'parentesco': _databaseParentesco(familiar.parentesco),
-          'activo': true,
-        });
+        await UsuariosService.createFamiliar(
+          idUsuario: employeeId,
+          parentesco: _databaseParentesco(familiar.parentesco),
+          nombre: familiar.nombres,
+          apellidos: familiar.apellidos,
+          telefono: familiar.telefono,
+        );
       } catch (e) {
         debugPrint('⚠️ Error insertando familiar en Supabase: $e');
-        if (e.toString().contains('invalid input value for enum parentesco')) {
-          throw Exception(
-            'La base de datos todavía usa un enum incompatible para parentesco. '
-            'Ejecuta en Supabase la migración '
-            'supabase/migrations/20261023_fix_parentesco_type.sql '
-            'y vuelve a intentar.',
-          );
-        }
         throw Exception('No se pudo guardar el familiar en Supabase: $e');
       }
     }
@@ -586,7 +519,7 @@ class SupabaseAdminRepository {
     final client = SupabaseConfig.client;
     if (client != null) {
       try {
-        await client.from('familiares').delete().eq('id', familiarId);
+        await UsuariosService.deleteFamiliar(familiarId);
       } catch (e) {
         debugPrint('⚠️ Error eliminando familiar en Supabase: $e');
       }
@@ -602,15 +535,13 @@ class SupabaseAdminRepository {
     final client = SupabaseConfig.client;
     if (client != null) {
       try {
-        await client
-            .from('familiares')
-            .update({
-              'ci': familiar.ci,
-              'nombres': familiar.nombres,
-              'apellidos': familiar.apellidos,
-              'parentesco': _databaseParentesco(familiar.parentesco),
-            })
-            .eq('id', familiar.id);
+        await UsuariosService.updateFamiliar(
+          idFamiliar: familiar.id,
+          parentesco: _databaseParentesco(familiar.parentesco),
+          nombre: familiar.nombres,
+          apellidos: familiar.apellidos,
+          telefono: familiar.telefono,
+        );
       } catch (e) {
         debugPrint('⚠️ Error actualizando familiar en Supabase: $e');
         throw Exception('No se pudo actualizar el familiar en Supabase: $e');
@@ -625,37 +556,78 @@ class SupabaseAdminRepository {
     );
   }
 
-  /// Alterna o activa el plan mensual (tarifa Bs. 15 vs Bs. 18)
-  Future<void> toggleMonthlyPlan(String employeeId, bool hasPlan) async {
+  /// Alterna o activa el plan mensual (tarifa Bs. 15 vs Bs. 18) para empleado o familiar
+  Future<void> toggleMonthlyPlan(
+    String employeeId,
+    bool hasPlan, {
+    String? familiarId,
+  }) async {
     final empIndex = _employees.indexWhere((e) => e.id == employeeId);
     if (empIndex != -1) {
-      _employees[empIndex] = _employees[empIndex].copyWith(
-        hasMonthlyPlan: hasPlan,
-      );
+      final currentEmp = _employees[empIndex];
+      if (familiarId != null) {
+        final updatedFams = currentEmp.familiares.map((f) {
+          if (f.id == familiarId) {
+            return f.copyWith(hasMonthlyPlan: hasPlan);
+          }
+          return f;
+        }).toList();
+        _employees[empIndex] = currentEmp.copyWith(familiares: updatedFams);
+      } else {
+        _employees[empIndex] = currentEmp.copyWith(
+          hasMonthlyPlan: hasPlan,
+        );
+      }
     }
 
     final client = SupabaseConfig.client;
     if (client != null) {
       try {
-        if (hasPlan) {
-          final currentMonth = DateTime(
-            DateTime.now().year,
-            DateTime.now().month,
-            1,
-          );
-          final monthStr =
-              "${currentMonth.year}-${currentMonth.month.toString().padLeft(2, '0')}-01";
-          await client.from('suscripciones').upsert({
-            'empleado_id': employeeId,
-            'mes': monthStr,
-            'modalidad': 'MENSUAL',
-            'activo': true,
-          });
+        final now = DateTime.now();
+        final modalidad = hasPlan ? 'Pensionado' : 'Regular';
+        if (familiarId != null) {
+          final existing = await client
+              .from('pension')
+              .select('id_pension')
+              .eq('id_familiar', familiarId)
+              .maybeSingle();
+
+          if (existing != null && existing['id_pension'] != null) {
+            await client
+                .from('pension')
+                .update({'modalidad': modalidad})
+                .eq('id_pension', existing['id_pension']);
+          } else if (hasPlan) {
+            await client.from('pension').insert({
+              'id_usuario': employeeId,
+              'id_familiar': familiarId,
+              'year': now.year,
+              'mes': now.month,
+              'modalidad': 'Pensionado',
+            });
+          }
         } else {
-          await client
-              .from('suscripciones')
-              .update({'activo': false})
-              .eq('empleado_id', employeeId);
+          final existing = await client
+              .from('pension')
+              .select('id_pension')
+              .eq('id_usuario', employeeId)
+              .isFilter('id_familiar', null)
+              .maybeSingle();
+
+          if (existing != null && existing['id_pension'] != null) {
+            await client
+                .from('pension')
+                .update({'modalidad': modalidad})
+                .eq('id_pension', existing['id_pension']);
+          } else if (hasPlan) {
+            await client.from('pension').insert({
+              'id_usuario': employeeId,
+              'id_familiar': null,
+              'year': now.year,
+              'mes': now.month,
+              'modalidad': 'Pensionado',
+            });
+          }
         }
       } catch (e) {
         debugPrint('⚠️ Error actualizando plan mensual en Supabase: $e');
