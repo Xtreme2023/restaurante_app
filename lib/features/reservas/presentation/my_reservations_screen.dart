@@ -251,6 +251,15 @@ class _MyReservationsScreenState extends ConsumerState<MyReservationsScreen>
                               color: Colors.grey.shade600,
                             ),
                           ),
+                          if (res.type == 'pension')
+                            Text(
+                              'Almuerzos reservados: ${res.quantity}',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: Colors.green.shade800,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
                         ],
                       ),
                     ),
@@ -259,46 +268,40 @@ class _MyReservationsScreenState extends ConsumerState<MyReservationsScreen>
                 const SizedBox(height: 12),
 
                 // Botones de acción
-                Row(
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
                   children: [
                     // Ver Ticket digital
-                    Expanded(
-                      child: OutlinedButton.icon(
-                        onPressed: () => _showTicketModal(context, res),
-                        style: OutlinedButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(vertical: 10),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                        ),
-                        icon: const Icon(Icons.qr_code, size: 18),
-                        label: const Text('Ver Ticket'),
-                      ),
+                    OutlinedButton.icon(
+                      onPressed: res.type == 'pension' && isUpcoming
+                          ? () => _editQuantity(res)
+                          : null,
+                      icon: const Icon(Icons.groups_outlined, size: 18),
+                      label: const Text('Cantidad'),
+                    ),
+                    OutlinedButton.icon(
+                      onPressed: () => _showTicketModal(context, res),
+                      icon: const Icon(Icons.qr_code, size: 18),
+                      label: const Text('Ver Ticket'),
                     ),
                     if (isUpcoming && res.isConfirmed) ...[
-                      const SizedBox(width: 8),
                       // Cancelar reserva
-                      Expanded(
-                        child: ElevatedButton.icon(
-                          onPressed: canCancelCheck.isAllowed
-                              ? () => _cancelReservation(res.id)
-                              : () => _showCancelPolicyAlert(
-                                  context,
-                                  canCancelCheck.message,
-                                ),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: canCancelCheck.isAllowed
-                                ? Colors.red.shade600
-                                : Colors.grey.shade400,
-                            foregroundColor: Colors.white,
-                            padding: const EdgeInsets.symmetric(vertical: 10),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                          ),
-                          icon: const Icon(Icons.cancel_outlined, size: 18),
-                          label: const Text('Cancelar'),
+                      ElevatedButton.icon(
+                        onPressed: canCancelCheck.isAllowed
+                            ? () => _cancelReservation(res.id)
+                            : () => _showCancelPolicyAlert(
+                                context,
+                                canCancelCheck.message,
+                              ),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: canCancelCheck.isAllowed
+                              ? Colors.red.shade600
+                              : Colors.grey.shade400,
+                          foregroundColor: Colors.white,
                         ),
+                        icon: const Icon(Icons.cancel_outlined, size: 18),
+                        label: const Text('Cancelar'),
                       ),
                     ],
                   ],
@@ -458,7 +461,7 @@ class _MyReservationsScreenState extends ConsumerState<MyReservationsScreen>
               child: Column(
                 children: [
                   QrImageView(
-                    data: 'reserva:${res.id}',
+                    data: res.pickupCode,
                     size: 140,
                     eyeStyle: QrEyeStyle(
                       eyeShape: QrEyeShape.square,
@@ -471,7 +474,7 @@ class _MyReservationsScreenState extends ConsumerState<MyReservationsScreen>
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    'CÓDIGO: #${res.id.toUpperCase().replaceAll('-', '').substring(0, 8)}',
+                    res.pickupCode,
                     style: const TextStyle(
                       fontFamily: 'monospace',
                       fontWeight: FontWeight.bold,
@@ -500,6 +503,12 @@ class _MyReservationsScreenState extends ConsumerState<MyReservationsScreen>
               title: const Text('Plato Seleccionado'),
               subtitle: Text(res.dishName),
             ),
+            ListTile(
+              dense: true,
+              leading: const Icon(Icons.groups_outlined),
+              title: const Text('Almuerzos'),
+              subtitle: Text('${res.quantity}'),
+            ),
             const SizedBox(height: 20),
             SizedBox(
               width: double.infinity,
@@ -510,6 +519,74 @@ class _MyReservationsScreenState extends ConsumerState<MyReservationsScreen>
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  Future<void> _editQuantity(Reservation reservation) async {
+    var quantity = reservation.quantity;
+    final selected = await showDialog<int>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) => AlertDialog(
+          title: const Text('Editar almuerzos'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text(
+                'Incluye al empleado y a los familiares que retirarán almuerzo ese día.',
+              ),
+              const SizedBox(height: 16),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  IconButton(
+                    onPressed: quantity > 1
+                        ? () => setDialogState(() => quantity--)
+                        : null,
+                    icon: const Icon(Icons.remove_circle_outline),
+                  ),
+                  Text(
+                    '$quantity',
+                    style: const TextStyle(
+                      fontSize: 28,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  IconButton(
+                    onPressed: () => setDialogState(() => quantity++),
+                    icon: const Icon(Icons.add_circle_outline),
+                  ),
+                ],
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Cancelar'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(ctx, quantity),
+              child: const Text('Guardar'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (selected == null || selected == reservation.quantity || !mounted) return;
+    final success = await ref
+        .read(userReservationsProvider.notifier)
+        .updateQuantity(reservation.id, selected);
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          success
+              ? 'Cantidad actualizada a $selected almuerzo(s).'
+              : 'No se pudo actualizar la cantidad.',
+        ),
+        backgroundColor: success ? Colors.green : Colors.red,
       ),
     );
   }

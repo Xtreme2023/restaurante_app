@@ -13,14 +13,14 @@ class AdminShell extends StatelessWidget {
             image: const AssetImage('assets/mesa.jpeg'),
             fit: BoxFit.cover,
             colorFilter: ColorFilter.mode(
-              Colors.black.withValues(alpha: 0.6),
+              const Color(0xFF172033).withValues(alpha: 0.68),
               BlendMode.darken,
             ),
           ),
         ),
         child: Center(
           child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 680),
+            constraints: const BoxConstraints(maxWidth: 1180),
             child: const AdminScreen(),
           ),
         ),

@@ -8,6 +8,7 @@ final authRepositoryProvider = Provider<SupabaseAuthRepository>((ref) {
 
 class AuthNotifier extends Notifier<UserProfile?> {
   String? lastError;
+  int _operationVersion = 0;
 
   @override
   UserProfile? build() {
@@ -16,13 +17,17 @@ class AuthNotifier extends Notifier<UserProfile?> {
   }
 
   Future<void> checkCurrentUser() async {
+    final operationVersion = _operationVersion;
     final repo = ref.read(authRepositoryProvider);
     final user = await repo.getCurrentUser();
-    state = user;
+    if (operationVersion == _operationVersion) {
+      state = user;
+    }
   }
 
   Future<bool> signIn(String email, String password) async {
     try {
+      _operationVersion++;
       lastError = null;
       final repo = ref.read(authRepositoryProvider);
       final user = await repo.signInWithEmailPassword(email, password);
@@ -41,6 +46,7 @@ class AuthNotifier extends Notifier<UserProfile?> {
     required String role,
   }) async {
     try {
+      _operationVersion++;
       lastError = null;
       final repo = ref.read(authRepositoryProvider);
       final user = await repo.signUpWithEmailPassword(
@@ -58,6 +64,7 @@ class AuthNotifier extends Notifier<UserProfile?> {
   }
 
   Future<void> signOut() async {
+    _operationVersion++;
     final repo = ref.read(authRepositoryProvider);
     await repo.signOut();
     state = null;

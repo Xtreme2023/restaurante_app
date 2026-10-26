@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:restaurante_app/core/utils/date_utils.dart';
+import 'package:restaurante_app/features/auth/domain/user_profile.dart';
 import 'package:restaurante_app/features/auth/presentation/providers/auth_provider.dart';
 import 'package:restaurante_app/features/familiares/domain/familiar_entity.dart';
 import 'package:restaurante_app/features/familiares/presentation/providers/family_providers.dart';
@@ -329,28 +330,37 @@ class _EmployeeScreenState extends ConsumerState<EmployeeScreen> {
     final weekStart = ref.watch(selectedWeekProvider);
 
     final familyMembers = familyAsync.value ?? [];
+    final activeUserName = currentUser?.fullName ?? 'Cargando usuario...';
+    final activeUserEmail = currentUser?.email ?? 'Sesión en preparación';
+    final activeEmployeeCode = currentUser?.employeeCode.trim() ?? '';
+    final screenTitle = currentUser?.fullName.trim().isNotEmpty == true
+        ? currentUser!.fullName
+        : 'Empleado';
 
     // Determinar tarifa aplicable:
     // 15 Bs si cuenta con Plan Mensual (isPensioner / hasMonthlyPlan)
     // 18 Bs si es particular / sin plan registrado
     final hasMonthlyPlan = currentUser?.isPensioner ?? false;
-    final double tariffPrice = hasMonthlyPlan ? 15.0 : 18.0;
+    final double tariffPrice =
+        currentUser?.mealPrice ?? UserProfile.dailyMealPrice;
 
     return Scaffold(
       backgroundColor: Colors.transparent,
       appBar: AppBar(
-        title: const Column(
+        title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              'Reservas de Comedor',
-              style: TextStyle(
+              'Reservas · $screenTitle',
+              style: const TextStyle(
                 fontWeight: FontWeight.bold,
                 fontSize: 20,
                 color: Colors.white,
               ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
             ),
-            Text(
+            const Text(
               'Menú semanal boliviano y tarifas institucionales',
               style: TextStyle(fontSize: 12, color: Colors.white70),
             ),
@@ -406,14 +416,57 @@ class _EmployeeScreenState extends ConsumerState<EmployeeScreen> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
+                        Row(
+                          children: [
+                            Icon(
+                              Icons.verified_user_outlined,
+                              size: 14,
+                              color: Colors.blueGrey.shade600,
+                            ),
+                            const SizedBox(width: 5),
+                            Text(
+                              'Usuario activo',
+                              style: TextStyle(
+                                fontSize: 10,
+                                fontWeight: FontWeight.w700,
+                                letterSpacing: 0.3,
+                                color: Colors.blueGrey.shade600,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 2),
                         Text(
-                          'Hola, ${currentUser?.fullName ?? 'Empleado'}',
+                          activeUserName,
                           style: const TextStyle(
                             fontWeight: FontWeight.bold,
                             fontSize: 15,
                             color: Color(0xFF1E293B),
                           ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
                         ),
+                        const SizedBox(height: 2),
+                        Text(
+                          activeUserEmail,
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: Colors.blueGrey.shade600,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        if (activeEmployeeCode.isNotEmpty)
+                          Text(
+                            'Código: $activeEmployeeCode',
+                            style: TextStyle(
+                              fontSize: 10.5,
+                              color: Colors.blueGrey.shade500,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        const SizedBox(height: 3),
                         Text(
                           hasMonthlyPlan
                               ? '⭐ Cuenta con Plan Mensual Activo'
@@ -803,7 +856,7 @@ class _EmployeeScreenState extends ConsumerState<EmployeeScreen> {
 
                     // Opción: Empleado
                     Material(
-                      color: Colors.transparent,
+                      color: Theme.of(context).colorScheme.surface,
                       child: CheckboxListTile(
                         contentPadding: EdgeInsets.zero,
                         title: Text(
@@ -845,7 +898,7 @@ class _EmployeeScreenState extends ConsumerState<EmployeeScreen> {
                       ...familyMembers.map((fam) {
                         final isChecked = _selectedFamiliarIds.contains(fam.id);
                         return Material(
-                          color: Colors.transparent,
+                          color: Theme.of(context).colorScheme.surface,
                           child: CheckboxListTile(
                             contentPadding: EdgeInsets.zero,
                             title: Text(
@@ -1015,7 +1068,7 @@ class _EmployeeScreenState extends ConsumerState<EmployeeScreen> {
         children: [
           Expanded(
             child: _buildCategoryTabItem(
-              title: 'Almuerzo Completo',
+              title: 'Almuerzo del día',
               subtitle: 'Ensalada + Sopa + Segundo',
               icon: Icons.lunch_dining,
               option: MenuCategoryOption.almuerzoCompleto,
@@ -1197,7 +1250,7 @@ class _EmployeeScreenState extends ConsumerState<EmployeeScreen> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         const Text(
-          'Almuerzo Completo: Entrada + Sopa del día + Segundo',
+          'Almuerzo del día: Entrada + Sopa del día + Segundo',
           style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
         ),
         const SizedBox(height: 6),
@@ -1238,7 +1291,7 @@ class _EmployeeScreenState extends ConsumerState<EmployeeScreen> {
           style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
         ),
         const SizedBox(height: 6),
-        // El selector de sopa permanece dentro del mismo Almuerzo Completo.
+        // El selector de sopa permanece dentro del mismo Almuerzo del día.
         DropdownButtonFormField<String>(
           key: ValueKey(
             'dish_selector_${_selectedDate.year}_${_selectedDate.month}_${_selectedDate.day}',
@@ -1335,7 +1388,7 @@ class _EmployeeScreenState extends ConsumerState<EmployeeScreen> {
 
         const SizedBox(height: 16),
 
-        // La sopa y el segundo se registran como un único Almuerzo Completo.
+        // La sopa y el segundo se registran como un único Almuerzo del día.
         Row(
           children: [
             const Icon(Icons.soup_kitchen, color: Color(0xFF2563EB), size: 18),
@@ -1368,7 +1421,7 @@ class _EmployeeScreenState extends ConsumerState<EmployeeScreen> {
         const Padding(
           padding: EdgeInsets.only(left: 26, top: 2),
           child: Text(
-            'Parte del Almuerzo Completo: sopa del día',
+            'Parte del Almuerzo del día: sopa del día',
             style: TextStyle(fontSize: 11, color: Colors.grey),
           ),
         ),
@@ -1986,7 +2039,7 @@ class _EmployeeScreenState extends ConsumerState<EmployeeScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 const Text(
-                  '🍱 Almuerzo Completo (Combo del Día)',
+                  '🍱 Almuerzo del día (Combo del Día)',
                   style: TextStyle(
                     fontSize: 13.5,
                     fontWeight: FontWeight.bold,
@@ -2006,7 +2059,7 @@ class _EmployeeScreenState extends ConsumerState<EmployeeScreen> {
                 ),
                 const SizedBox(height: 2),
                 const Text(
-                  'El combo pasa a denominarse Almuerzo Completo y se registrará en Supabase.',
+                  'El combo pasa a denominarse Almuerzo del día y se registrará en Supabase.',
                   style: TextStyle(fontSize: 10.5, color: Colors.grey),
                 ),
               ],
@@ -2503,7 +2556,7 @@ class _EmployeeScreenState extends ConsumerState<EmployeeScreen> {
   String _getSummaryOptionText() {
     switch (_selectedCategoryOption) {
       case MenuCategoryOption.almuerzoCompleto:
-        return '• Almuerzo Completo: Ensalada ($_selectedSaladName) + Sopa del día ($_selectedSoupName) + Segundo (${_selectedDishName ?? "Silpancho Cochabambino"})';
+        return '• Almuerzo del día: Ensalada ($_selectedSaladName) + Sopa del día ($_selectedSoupName) + Segundo (${_selectedDishName ?? "Silpancho Cochabambino"})';
       case MenuCategoryOption.vegetariano:
         return '• Menú Vegetariano: ${_selectedVegDishName ?? "Quinua Real con Champiñones y Palta"}';
       case MenuCategoryOption.platoEspecial:
@@ -2532,7 +2585,7 @@ class _EmployeeScreenState extends ConsumerState<EmployeeScreen> {
         entrada = _selectedSaladName;
         platoPrincipal = _selectedDishName ?? 'Silpancho Cochabambino';
         sopa = _selectedSoupName;
-        comboName = 'Almuerzo Completo ($entrada + $sopa + $platoPrincipal)';
+        comboName = 'Almuerzo del día ($entrada + $sopa + $platoPrincipal)';
         isAlmuerzoCompleto = true;
         menuCategory = ReservationMenuCategory.almuerzoCompleto;
         break;

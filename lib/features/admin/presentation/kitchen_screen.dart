@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:table_calendar/table_calendar.dart';
 import 'package:restaurante_app/core/utils/date_utils.dart';
 import 'package:restaurante_app/features/auth/presentation/providers/auth_provider.dart';
@@ -24,9 +25,14 @@ class _KitchenScreenState extends ConsumerState<KitchenScreen>
   List<Reservation> _orders = [];
   bool _isLoadingOrders = true;
   String _orderSearchQuery = '';
+  final TextEditingController _pickupCodeController = TextEditingController();
 
   // Día seleccionado en el planificador semanal de cocina (0=Lunes, ..., 4=Viernes)
   int _selectedDayIndex = 0;
+
+  double _displayPrice(Reservation order) {
+    return order.type == 'pension' ? 15.0 : 18.0;
+  }
 
   @override
   void initState() {
@@ -38,7 +44,102 @@ class _KitchenScreenState extends ConsumerState<KitchenScreen>
   @override
   void dispose() {
     _tabController.dispose();
+    _pickupCodeController.dispose();
     super.dispose();
+  }
+
+  Future<void> _scanPickupCode() async {
+    _pickupCodeController.clear();
+    final code = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Registrar retiro'),
+        content: TextField(
+          controller: _pickupCodeController,
+          autofocus: true,
+          textCapitalization: TextCapitalization.characters,
+          decoration: const InputDecoration(
+            labelText: 'Escanea o escribe el código QR',
+            hintText: 'EMP-042_MARTES_2026-10-27',
+            prefixIcon: Icon(Icons.qr_code_scanner),
+          ),
+          onSubmitted: (value) => Navigator.pop(ctx, value),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, _pickupCodeController.text),
+            child: const Text('Verificar'),
+          ),
+        ],
+      ),
+    );
+    if (!mounted || code == null) return;
+
+    final normalizedCode = code.trim().toUpperCase();
+    if (normalizedCode.isEmpty) return;
+    final order = _orders.cast<Reservation?>().firstWhere(
+      (item) => item?.pickupCode.toUpperCase() == normalizedCode,
+      orElse: () => null,
+    );
+    if (order == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Código inválido o sin reserva para este día.'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+    if (order.isDelivered) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Este almuerzo ya fue registrado como retirado.'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      return;
+    }
+    await _markAsDelivered(order);
+  }
+
+  Future<void> _scanWithCamera() async {
+    final code = await Navigator.of(context).push<String>(
+      MaterialPageRoute(builder: (_) => const _PickupScannerPage()),
+    );
+    if (!mounted || code == null) return;
+    _pickupCodeController.text = code;
+    await _verifyPickupCode(code);
+  }
+
+  Future<void> _verifyPickupCode(String code) async {
+    final normalizedCode = code.trim().toUpperCase();
+    final order = _orders.cast<Reservation?>().firstWhere(
+      (item) => item?.pickupCode.toUpperCase() == normalizedCode,
+      orElse: () => null,
+    );
+    if (order == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Código inválido o sin reserva para este día.'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+    if (order.isDelivered) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Este almuerzo ya fue registrado como retirado.'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      return;
+    }
+    await _markAsDelivered(order);
   }
 
   Future<void> _loadOrders() async {
@@ -46,6 +147,9 @@ class _KitchenScreenState extends ConsumerState<KitchenScreen>
     try {
       final repo = ref.read(reservationRepositoryProvider);
       final list = await repo.getAllReservationsForDate(_selectedDate);
+      await ref
+          .read(weeklyMenuProvider.notifier)
+          .loadWeek(ref.read(selectedWeekProvider));
       if (mounted) {
         setState(() {
           _orders = list;
@@ -81,11 +185,7 @@ class _KitchenScreenState extends ConsumerState<KitchenScreen>
 
     try {
       final repo = ref.read(reservationRepositoryProvider);
-      // Los pedidos del plan mensual se construyen desde el padrón diario y
-      // no tienen una fila individual en `reservas`.
-      if (!order.id.startsWith('monthly-')) {
-        await repo.updateReservationStatus(order.id, 'entregada');
-      }
+      await repo.updateReservationStatus(order.id, 'entregada');
       if (mounted) {
         setState(() {
           final index = _orders.indexWhere((o) => o.id == order.id);
@@ -163,6 +263,37 @@ class _KitchenScreenState extends ConsumerState<KitchenScreen>
         elevation: 0,
         actions: [
           IconButton(
+            icon: const Icon(Icons.qr_code_scanner, color: Colors.white),
+            tooltip: 'Registrar retiro por QR',
+            onPressed: () async {
+              await showModalBottomSheet<void>(
+                context: context,
+                builder: (ctx) => SafeArea(
+                  child: Wrap(
+                    children: [
+                      ListTile(
+                        leading: const Icon(Icons.camera_alt_outlined),
+                        title: const Text('Escanear con cámara'),
+                        onTap: () {
+                          Navigator.pop(ctx);
+                          _scanWithCamera();
+                        },
+                      ),
+                      ListTile(
+                        leading: const Icon(Icons.keyboard_outlined),
+                        title: const Text('Escribir o usar lector USB'),
+                        onTap: () {
+                          Navigator.pop(ctx);
+                          _scanPickupCode();
+                        },
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            },
+          ),
+          IconButton(
             icon: const Icon(Icons.refresh, color: Colors.white),
             tooltip: 'Actualizar',
             onPressed: () {
@@ -182,6 +313,9 @@ class _KitchenScreenState extends ConsumerState<KitchenScreen>
         ],
         bottom: TabBar(
           controller: _tabController,
+          isScrollable: true,
+          tabAlignment: TabAlignment.start,
+          labelPadding: const EdgeInsets.symmetric(horizontal: 12),
           labelColor: Colors.white,
           unselectedLabelColor: Colors.white60,
           indicatorColor: Colors.white,
@@ -228,7 +362,7 @@ class _KitchenScreenState extends ConsumerState<KitchenScreen>
     final pendingOrders = totalOrders - deliveredOrders;
     final totalCharge = _orders
         .where((o) => o.status != 'cancelada')
-        .fold<double>(0, (sum, order) => sum + order.price);
+        .fold<double>(0, (sum, order) => sum + _displayPrice(order));
     final ordersByEmployee = <String, int>{};
     for (final order in _orders.where((o) => o.status != 'cancelada')) {
       ordersByEmployee[order.userId] =
@@ -580,7 +714,7 @@ class _KitchenScreenState extends ConsumerState<KitchenScreen>
                       (o) =>
                           o.userId == order.userId && o.status != 'cancelada',
                     )
-                    .fold<double>(0, (sum, item) => sum + item.price);
+                    .fold<double>(0, (sum, item) => sum + _displayPrice(item));
                 final deliveryCheck = ReservationPolicy().checkCanDeliver(
                   order.date,
                   DateTime.now(),
@@ -766,7 +900,9 @@ class _KitchenScreenState extends ConsumerState<KitchenScreen>
                   leading: const Icon(Icons.lunch_dining),
                   title: Text(order.displayName),
                   subtitle: Text('${order.dishName} · ${order.status}'),
-                  trailing: Text('Bs ${order.price.toStringAsFixed(2)}'),
+                  trailing: Text(
+                    'Bs ${_displayPrice(order).toStringAsFixed(2)}',
+                  ),
                 ),
               ),
             ),
@@ -866,7 +1002,7 @@ class _KitchenScreenState extends ConsumerState<KitchenScreen>
         .toList();
     final totalCharge = reservations.fold<double>(
       0,
-      (sum, reservation) => sum + reservation.price,
+      (sum, reservation) => sum + _displayPrice(reservation),
     );
 
     return Container(
@@ -1468,6 +1604,80 @@ class _KitchenScreenState extends ConsumerState<KitchenScreen>
           style: TextStyle(fontSize: 12, color: Colors.grey.shade700),
         ),
       ],
+    );
+  }
+}
+
+class _PickupScannerPage extends StatefulWidget {
+  const _PickupScannerPage();
+
+  @override
+  State<_PickupScannerPage> createState() => _PickupScannerPageState();
+}
+
+class _PickupScannerPageState extends State<_PickupScannerPage> {
+  final MobileScannerController _controller = MobileScannerController();
+  bool _hasResult = false;
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Escanear ticket QR'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.flash_on),
+            onPressed: () => _controller.toggleTorch(),
+          ),
+        ],
+      ),
+      body: Stack(
+        fit: StackFit.expand,
+        children: [
+          MobileScanner(
+            controller: _controller,
+            onDetect: (capture) {
+              if (_hasResult) return;
+              final value = capture.barcodes
+                  .map((barcode) => barcode.rawValue)
+                  .whereType<String>()
+                  .firstWhere(
+                    (value) => value.trim().isNotEmpty,
+                    orElse: () => '',
+                  );
+              if (value.isEmpty) return;
+              _hasResult = true;
+              Navigator.of(context).pop(value);
+            },
+          ),
+          Center(
+            child: Container(
+              width: 280,
+              height: 180,
+              decoration: BoxDecoration(
+                border: Border.all(color: Colors.white, width: 3),
+                borderRadius: BorderRadius.circular(16),
+              ),
+            ),
+          ),
+          const Positioned(
+            left: 24,
+            right: 24,
+            bottom: 40,
+            child: Text(
+              'Centra el código QR del ticket dentro del recuadro.',
+              textAlign: TextAlign.center,
+              style: TextStyle(color: Colors.white, fontSize: 16),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

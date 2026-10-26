@@ -10,6 +10,7 @@ CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 CREATE TABLE IF NOT EXISTS public.profiles (
     id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
     email TEXT NOT NULL,
+    employee_code TEXT UNIQUE,
     full_name TEXT NOT NULL,
     role TEXT NOT NULL DEFAULT 'empleado' CHECK (role IN ('empleado', 'encargado', 'institucion')),
     department TEXT DEFAULT 'Administración Central',
@@ -45,6 +46,7 @@ CREATE TABLE IF NOT EXISTS public.holidays (
 CREATE TABLE IF NOT EXISTS public.reservations (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE,
+    employee_code TEXT,
     dish_id UUID REFERENCES public.dishes(id) ON DELETE SET NULL,
     dish_name TEXT,
     entrada_nombre TEXT,
@@ -60,6 +62,7 @@ CREATE TABLE IF NOT EXISTS public.reservations (
     familiar_id TEXT,
     beneficiary_name TEXT NOT NULL DEFAULT 'Empleado',
     price NUMERIC(10, 2) NOT NULL DEFAULT 18.00,
+    quantity INT NOT NULL DEFAULT 1 CHECK (quantity > 0),
     notes TEXT,
     created_at TIMESTAMPTZ DEFAULT now()
 );

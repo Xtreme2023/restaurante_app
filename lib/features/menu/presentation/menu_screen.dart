@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:restaurante_app/features/auth/domain/user_profile.dart';
 import 'package:restaurante_app/features/auth/presentation/providers/auth_provider.dart';
 import 'package:restaurante_app/features/menu/data/supabase_menu_repository.dart';
 import 'package:restaurante_app/features/menu/domain/daily_menu_entity.dart';
@@ -21,11 +22,10 @@ class _MenuScreenState extends ConsumerState<MenuScreen> {
   List<Dish> _dishes = [];
   DailyMenu? _dailyMenu;
   bool _isLoading = true;
-  String _selectedCategory = 'Almuerzo Completo';
-  String _searchQuery = '';
+  String _selectedCategory = 'Almuerzo del día';
 
   List<String> _categories(bool isThursday) => [
-    'Almuerzo Completo',
+    'Almuerzo del día',
     'Especial',
     'Vegetariano',
     if (isThursday) 'Postre',
@@ -41,7 +41,7 @@ class _MenuScreenState extends ConsumerState<MenuScreen> {
     setState(() => _isLoading = true);
     final now = DateTime.now();
     if (_selectedCategory == 'Postre' && !DailyMenuPolicy.isDessertDay(now)) {
-      _selectedCategory = 'Almuerzo Completo';
+      _selectedCategory = 'Almuerzo del día';
     }
     final structure = await _repository.getDailyMenuStructure(now);
     final dishes = structure.allDishes.toSet().toList();
@@ -68,45 +68,40 @@ class _MenuScreenState extends ConsumerState<MenuScreen> {
 
   List<Dish> get _filteredDishes {
     return _dishes.where((dish) {
-      final matchesCategory = (_selectedCategory == 'Almuerzo Completo'
+      final matchesCategory = (_selectedCategory == 'Almuerzo del día'
           ? dish.category == 'Sopa' ||
                 dish.category == 'Segundo' ||
                 dish.category == 'Entrada'
           : dish.category.toLowerCase().contains(
               _selectedCategory.toLowerCase(),
             ));
-      final matchesSearch =
-          dish.name.toLowerCase().contains(_searchQuery.toLowerCase()) ||
-          dish.description.toLowerCase().contains(_searchQuery.toLowerCase());
-      return matchesCategory && matchesSearch;
+      return matchesCategory;
     }).toList();
   }
 
   List<Dish> get _selectedDishes {
     if (_selectedCategory == 'Especial' && _dailyMenu != null) {
-      return [_dailyMenu!.platoEspecial].where(_matchesSearch).toList();
+      return [_dailyMenu!.platoEspecial];
     }
     return _filteredDishes;
-  }
-
-  bool _matchesSearch(Dish dish) {
-    final query = _searchQuery.toLowerCase();
-    return dish.name.toLowerCase().contains(query) ||
-        dish.description.toLowerCase().contains(query);
   }
 
   @override
   Widget build(BuildContext context) {
     final isThursday = DailyMenuPolicy.isDessertDay(DateTime.now());
     final categories = _categories(isThursday);
+    final currentUser = ref.watch(authProvider);
+    final activeUserName = currentUser?.fullName.trim().isNotEmpty == true
+        ? currentUser!.fullName
+        : 'Cargando usuario...';
 
     return Scaffold(
       backgroundColor: Colors.transparent,
       appBar: AppBar(
-        title: const Column(
+        title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
+            const Text(
               'Menú del Día',
               style: TextStyle(
                 fontWeight: FontWeight.bold,
@@ -115,8 +110,14 @@ class _MenuScreenState extends ConsumerState<MenuScreen> {
               ),
             ),
             Text(
-              'Restaurante Institucional',
-              style: TextStyle(fontSize: 12, color: Colors.white70),
+              'Usuario activo: $activeUserName',
+              style: const TextStyle(
+                fontSize: 12,
+                color: Colors.white,
+                fontWeight: FontWeight.w600,
+              ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
             ),
           ],
         ),
@@ -137,7 +138,7 @@ class _MenuScreenState extends ConsumerState<MenuScreen> {
       ),
       body: Column(
         children: [
-          // Banner informativo de la estructura del menú del día
+          // Resumen expandible de la estructura del menú del día
           if (_dailyMenu != null)
             Padding(
               padding: const EdgeInsets.symmetric(
@@ -157,116 +158,58 @@ class _MenuScreenState extends ConsumerState<MenuScreen> {
                     ),
                   ],
                 ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        const Icon(
-                          Icons.restaurant_menu,
-                          color: Color(0xFF2563EB),
-                          size: 20,
-                        ),
-                        const SizedBox(width: 8),
-                        const Expanded(
-                          child: Text(
-                            'Menú Diario',
-                            style: TextStyle(
-                              fontWeight: FontWeight.bold,
-                              fontSize: 14,
-                              color: Color(0xFF1E293B),
-                            ),
-                          ),
-                        ),
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 8,
-                            vertical: 2,
-                          ),
-                          decoration: BoxDecoration(
-                            color: isThursday
-                                ? Colors.purple.withValues(alpha: 0.15)
-                                : Colors.grey.withValues(alpha: 0.15),
-                            borderRadius: BorderRadius.circular(10),
-                          ),
-                          child: Text(
-                            isThursday
-                                ? '🍰 Jueves: Postre'
-                                : '🍰 Postres solo jueves',
-                            style: TextStyle(
-                              fontSize: 11,
-                              fontWeight: FontWeight.bold,
-                              color: isThursday
-                                  ? Colors.purple
-                                  : Colors.grey.shade700,
-                            ),
-                          ),
-                        ),
-                      ],
+                child: Theme(
+                  data: Theme.of(
+                    context,
+                  ).copyWith(dividerColor: Colors.transparent),
+                  child: ExpansionTile(
+                    tilePadding: EdgeInsets.zero,
+                    childrenPadding: const EdgeInsets.only(bottom: 4),
+                    leading: const Icon(
+                      Icons.restaurant_menu,
+                      color: Color(0xFF2563EB),
                     ),
-                    const SizedBox(height: 8),
-                    ..._dailyMenu!.opcionesAlmuerzo.asMap().entries.map(
-                      (entry) => Padding(
-                        padding: const EdgeInsets.only(bottom: 2),
-                        child: Text(
-                          '• Almuerzo Completo ${entry.key + 1}: Entrada (${entry.value.entrada.name}) + Sopa del día (${entry.value.sopa.name}) + Segundo (${entry.value.segundo.name})',
-                          style: const TextStyle(
-                            fontSize: 12,
-                            color: Color(0xFF334155),
-                          ),
-                        ),
+                    title: const Text(
+                      'Menú Diario',
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 14,
+                        color: Color(0xFF1E293B),
                       ),
                     ),
-                    const SizedBox(height: 2),
-                    Text(
-                      '• Opción Vegetariana: ${_dailyMenu!.platoVegetariano.name}',
-                      style: const TextStyle(
-                        fontSize: 12,
-                        color: Color(0xFF334155),
+                    subtitle: Text(
+                      isThursday
+                          ? 'Jueves: incluye postre'
+                          : 'Consulta las opciones de hoy',
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: isThursday
+                            ? Colors.purple
+                            : Colors.grey.shade700,
                       ),
                     ),
-                    const SizedBox(height: 2),
-                    Text(
-                      '• Plato Especial: ${_dailyMenu!.platoEspecial.name}',
-                      style: const TextStyle(
-                        fontSize: 12,
-                        color: Color(0xFF334155),
+                    children: [
+                      ..._dailyMenu!.opcionesAlmuerzo.asMap().entries.map(
+                        (entry) => _buildDailyMenuItem(
+                          'Almuerzo del día ${entry.key + 1}',
+                          'Entrada: ${entry.value.entrada.name} · '
+                              'Sopa: ${entry.value.sopa.name} · '
+                              'Segundo: ${entry.value.segundo.name}',
+                        ),
                       ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-
-          // Barra de búsqueda rápida
-          Padding(
-            padding: const EdgeInsets.symmetric(
-              horizontal: 16.0,
-              vertical: 6.0,
-            ),
-            child: Container(
-              decoration: BoxDecoration(
-                color: Colors.white.withValues(alpha: 0.95),
-                borderRadius: BorderRadius.circular(16),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.1),
-                    blurRadius: 10,
-                    offset: const Offset(0, 4),
+                      _buildDailyMenuItem(
+                        'Opción vegetariana',
+                        _dailyMenu!.platoVegetariano.name,
+                      ),
+                      _buildDailyMenuItem(
+                        'Plato especial',
+                        _dailyMenu!.platoEspecial.name,
+                      ),
+                    ],
                   ),
-                ],
-              ),
-              child: TextField(
-                onChanged: (val) => setState(() => _searchQuery = val),
-                decoration: const InputDecoration(
-                  hintText: 'Buscar platos, ingredientes...',
-                  prefixIcon: Icon(Icons.search, color: Colors.grey),
-                  border: InputBorder.none,
-                  contentPadding: EdgeInsets.symmetric(vertical: 14),
                 ),
               ),
             ),
-          ),
 
           // Filtro por categorías
           SingleChildScrollView(
@@ -313,7 +256,7 @@ class _MenuScreenState extends ConsumerState<MenuScreen> {
                 ? const Center(
                     child: CircularProgressIndicator(color: Colors.white),
                   )
-                : (_selectedCategory == 'Almuerzo Completo'
+                : (_selectedCategory == 'Almuerzo del día'
                       ? _dailyMenu!.opcionesAlmuerzo.isEmpty
                       : _selectedDishes.isEmpty)
                 ? Center(
@@ -349,16 +292,17 @@ class _MenuScreenState extends ConsumerState<MenuScreen> {
                     onRefresh: _loadMenu,
                     child: ListView.builder(
                       padding: const EdgeInsets.all(16),
-                      itemCount: _selectedCategory == 'Almuerzo Completo'
+                      itemCount: _selectedCategory == 'Almuerzo del día'
                           ? _dailyMenu!.opcionesAlmuerzo.length
                           : _selectedDishes.length,
                       itemBuilder: (context, index) {
-                        if (_selectedCategory == 'Almuerzo Completo') {
+                        if (_selectedCategory == 'Almuerzo del día') {
                           return _buildCompleteLunchCard(
                             _dailyMenu!.opcionesAlmuerzo[index],
                             index,
                           );
                         }
+
                         return _buildDishCard(_selectedDishes[index]);
                       },
                     ),
@@ -369,7 +313,40 @@ class _MenuScreenState extends ConsumerState<MenuScreen> {
     );
   }
 
+  Widget _buildDailyMenuItem(String title, String description) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Padding(
+            padding: EdgeInsets.only(top: 5),
+            child: Icon(Icons.circle, size: 6, color: Color(0xFF2563EB)),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: RichText(
+              text: TextSpan(
+                style: const TextStyle(fontSize: 12, color: Color(0xFF334155)),
+                children: [
+                  TextSpan(
+                    text: '$title: ',
+                    style: const TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                  TextSpan(text: description),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildCompleteLunchCard(AlmuerzoCompleto combo, int index) {
+    final currentUser = ref.watch(authProvider);
+    final hasMonthlyPlan = currentUser?.isPensioner ?? false;
+    final employeePrice = currentUser?.mealPrice ?? UserProfile.dailyMealPrice;
     final components = [
       ('Entrada / ensalada', combo.entrada),
       ('Sopa del día', combo.sopa),
@@ -402,7 +379,7 @@ class _MenuScreenState extends ConsumerState<MenuScreen> {
               const SizedBox(width: 8),
               Expanded(
                 child: Text(
-                  'Almuerzo Completo ${index + 1}',
+                  'Almuerzo del día ${index + 1}',
                   style: const TextStyle(
                     fontSize: 18,
                     fontWeight: FontWeight.bold,
@@ -411,10 +388,12 @@ class _MenuScreenState extends ConsumerState<MenuScreen> {
                 ),
               ),
               Text(
-                'Bs. ${combo.precio.toStringAsFixed(2)}',
-                style: const TextStyle(
+                'Bs. ${employeePrice.toStringAsFixed(2)}',
+                style: TextStyle(
                   fontWeight: FontWeight.bold,
-                  color: Colors.green,
+                  color: hasMonthlyPlan
+                      ? Colors.green.shade700
+                      : Colors.deepOrange.shade700,
                 ),
               ),
             ],

@@ -32,6 +32,7 @@ class SupabaseAuthRepository {
   static final UserProfile demoEmpleado = UserProfile(
     id: 'demo-user-123',
     email: 'juan.empleado@institucion.gob.bo',
+    employeeCode: 'EMP-042',
     fullName: 'Juan Pérez',
     role: 'empleado',
     department: 'Finanzas y Contabilidad',

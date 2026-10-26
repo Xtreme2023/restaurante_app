@@ -198,12 +198,14 @@ class SupabaseAdminRepository {
   /// Registra un nuevo empleado junto a sus familiares iniciales
   Future<AdminEmployee> createEmployee({
     required String ci,
+    String employeeCode = '',
     required String nombres,
     required String apellidos,
     required String email,
     String password = '123456',
     required String telefono,
     required String departamento,
+    String rol = 'empleado',
     required bool hasMonthlyPlan,
     List<Map<String, String>> initialFamiliares = const [],
   }) async {
@@ -228,6 +230,11 @@ class SupabaseAdminRepository {
     }
 
     var newId = const Uuid().v4();
+    final normalizedEmployeeCode = employeeCode.trim().toUpperCase();
+    if (normalizedEmployeeCode.isNotEmpty &&
+        !RegExp(r'^EMP-\d{3}$').hasMatch(normalizedEmployeeCode)) {
+      throw Exception('El código debe tener el formato EMP-042.');
+    }
     final List<Familiar> addedFamiliares = [];
 
     // Limitar familiares iniciales al máximo legal de 3
@@ -257,9 +264,10 @@ class SupabaseAdminRepository {
       nombres: nombres.trim(),
       apellidos: apellidos.trim(),
       email: trimmedEmail,
+      employeeCode: normalizedEmployeeCode,
       telefono: telefono.trim(),
       departamento: departamento.trim(),
-      rol: 'EMPLEADO',
+      rol: rol.toUpperCase(),
       hasMonthlyPlan: hasMonthlyPlan,
       activo: true,
       creadoEn: DateTime.now(),
@@ -305,12 +313,14 @@ class SupabaseAdminRepository {
         'create-employee',
         body: {
           'ci': trimmedCi,
+          'employeeCode': normalizedEmployeeCode,
           'nombres': nombres,
           'apellidos': apellidos,
           'email': trimmedEmail,
           'password': password,
           'telefono': telefono,
           'departamento': departamento,
+          'rol': rol.toUpperCase(),
           'hasMonthlyPlan': hasMonthlyPlan,
           'familiares': addedFamiliares
               .map(
@@ -384,11 +394,13 @@ class SupabaseAdminRepository {
             .from('usuarios')
             .update({
               'ci': updated.ci,
+              'employee_code': updated.employeeCode,
               'nombres': updated.nombres,
               'apellidos': updated.apellidos,
               'email': updated.email,
               'telefono': updated.telefono,
               'departamento': updated.departamento,
+              'rol': updated.rol,
               'has_monthly_plan': updated.hasMonthlyPlan,
             })
             .eq('id', updated.id);
@@ -404,6 +416,7 @@ class SupabaseAdminRepository {
                 'full_name': '${updated.nombres} ${updated.apellidos}',
                 'department': updated.departamento,
                 'is_pensioner': updated.hasMonthlyPlan,
+                'employee_code': updated.employeeCode,
               })
               .eq('id', updated.id);
         } catch (_) {}

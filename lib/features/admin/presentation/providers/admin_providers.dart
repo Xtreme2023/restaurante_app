@@ -72,12 +72,14 @@ class AdminEmployeesNotifier extends Notifier<AdminEmployeesState> {
 
   Future<bool> createEmployee({
     required String ci,
+    String employeeCode = '',
     required String nombres,
     required String apellidos,
     required String email,
     required String password,
     required String telefono,
     required String departamento,
+    String rol = 'empleado',
     required bool hasMonthlyPlan,
     List<Map<String, String>> initialFamiliares = const [],
   }) async {
@@ -85,12 +87,14 @@ class AdminEmployeesNotifier extends Notifier<AdminEmployeesState> {
       final repo = ref.read(adminRepositoryProvider);
       final newEmp = await repo.createEmployee(
         ci: ci,
+        employeeCode: employeeCode,
         nombres: nombres,
         apellidos: apellidos,
         email: email,
         password: password,
         telefono: telefono,
         departamento: departamento,
+        rol: rol,
         hasMonthlyPlan: hasMonthlyPlan,
         initialFamiliares: initialFamiliares,
       );

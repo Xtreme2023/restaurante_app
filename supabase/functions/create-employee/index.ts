@@ -7,12 +7,14 @@ const corsHeaders = {
 
 type EmployeeRequest = {
   ci: string;
+  employeeCode: string;
   nombres: string;
   apellidos: string;
   email: string;
   password: string;
   telefono: string;
   departamento: string;
+  rol: string;
   hasMonthlyPlan: boolean;
   familiares: Array<{
     ci: string;
@@ -75,8 +77,13 @@ Deno.serve(async (request) => {
   }
 
   const email = payload.email.trim().toLowerCase();
-  if (!email || payload.password.length < 6 || !payload.ci.trim()) {
-    return json({ error: "Correo, contraseña y CI son obligatorios" }, 400);
+  const role = payload.rol.trim().toUpperCase();
+  if (!["ADMIN", "ADMINISTRADOR", "COCINA", "ENCARGADO", "EMPLEADO"].includes(role)) {
+    return json({ error: "Rol de usuario inválido" }, 400);
+  }
+  if (!email || payload.password.length < 6 || !payload.ci.trim() ||
+      !/^EMP-\d{3}$/.test(payload.employeeCode.trim().toUpperCase())) {
+    return json({ error: "Correo, contraseña, CI y código EMP-### son obligatorios" }, 400);
   }
 
   const { data: created, error: createError } =
@@ -86,7 +93,7 @@ Deno.serve(async (request) => {
       email_confirm: true,
       user_metadata: {
         full_name: `${payload.nombres.trim()} ${payload.apellidos.trim()}`.trim(),
-        role: "empleado",
+        role: role.toLowerCase(),
       },
     });
   if (createError || !created.user) {
@@ -97,12 +104,13 @@ Deno.serve(async (request) => {
   const { error: employeeError } = await adminClient.from("usuarios").insert({
     id: userId,
     ci: payload.ci.trim(),
+    employee_code: payload.employeeCode.trim().toUpperCase(),
     nombres: payload.nombres.trim(),
     apellidos: payload.apellidos.trim(),
     email,
     telefono: payload.telefono.trim(),
     departamento: payload.departamento.trim(),
-    rol: "EMPLEADO",
+    rol: role,
     has_monthly_plan: payload.hasMonthlyPlan,
     activo: true,
   });

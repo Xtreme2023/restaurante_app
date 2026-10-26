@@ -137,15 +137,17 @@ class UserReservationsNotifier extends Notifier<List<Reservation>> {
   }) async {
     try {
       final repo = ref.read(reservationRepositoryProvider);
+      final currentUser = ref.read(authProvider);
       final finalDishName =
           dishName ??
           (platoPrincipal != null && sopaNombre != null
-              ? 'Almuerzo Completo (${entradaNombre ?? "Ensalada Fresca del Día"} + $sopaNombre + $platoPrincipal)'
-              : 'Almuerzo Completo del Día');
+              ? 'Almuerzo del día (${entradaNombre ?? "Ensalada Fresca del Día"} + $sopaNombre + $platoPrincipal)'
+              : 'Almuerzo del día');
 
       final newRes = Reservation(
         id: const Uuid().v4(),
         userId: userId,
+        storedEmployeeCode: currentUser?.employeeCode,
         userName: userName,
         familiarId: familiarId,
         beneficiaryName: beneficiaryName ?? userName,
@@ -191,18 +193,20 @@ class UserReservationsNotifier extends Notifier<List<Reservation>> {
   }) async {
     int count = 0;
     final repo = ref.read(reservationRepositoryProvider);
+    final currentUser = ref.read(authProvider);
     final List<Reservation> createdList = [];
 
     final finalDishName = dishName.isNotEmpty
         ? dishName
         : (platoPrincipal != null && sopaNombre != null
-              ? 'Almuerzo Completo (${entradaNombre ?? "Ensalada Fresca del Día"} + $sopaNombre + $platoPrincipal)'
-              : 'Almuerzo Completo del Día');
+              ? 'Almuerzo del día (${entradaNombre ?? "Ensalada Fresca del Día"} + $sopaNombre + $platoPrincipal)'
+              : 'Almuerzo del día');
 
     if (reserveForEmployee) {
       final res = Reservation(
         id: const Uuid().v4(),
         userId: userId,
+        storedEmployeeCode: currentUser?.employeeCode,
         userName: userName,
         beneficiaryName: userName,
         dishName: finalDishName,
@@ -228,6 +232,7 @@ class UserReservationsNotifier extends Notifier<List<Reservation>> {
       final res = Reservation(
         id: const Uuid().v4(),
         userId: userId,
+        storedEmployeeCode: currentUser?.employeeCode,
         userName: userName,
         familiarId: famId,
         beneficiaryName: famName,
@@ -265,6 +270,26 @@ class UserReservationsNotifier extends Notifier<List<Reservation>> {
       }).toList();
       return true;
     } catch (e) {
+      return false;
+    }
+  }
+
+  Future<bool> updateQuantity(String reservationId, int quantity) async {
+    try {
+      final repo = ref.read(reservationRepositoryProvider);
+      if (repo is! ReservationQuantityRepository) {
+        throw StateError('El repositorio no permite editar cantidades.');
+      }
+      final quantityRepo = repo as ReservationQuantityRepository;
+      await quantityRepo.updateReservationQuantity(reservationId, quantity);
+      state = state
+          .map(
+            (r) => r.id == reservationId ? r.copyWith(quantity: quantity) : r,
+          )
+          .toList();
+      return true;
+    } catch (e) {
+      debugPrint('⚠️ Error actualizando cantidad de almuerzos: $e');
       return false;
     }
   }

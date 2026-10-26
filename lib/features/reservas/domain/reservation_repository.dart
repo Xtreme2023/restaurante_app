@@ -9,3 +9,7 @@ abstract class ReservationRepository {
   Future<void> updateReservationStatus(String reservationId, String status);
   Future<List<Holiday>> getHolidays();
 }
+
+abstract interface class ReservationQuantityRepository {
+  Future<void> updateReservationQuantity(String reservationId, int quantity);
+}

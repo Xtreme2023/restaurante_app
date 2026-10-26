@@ -89,6 +89,7 @@ CREATE TABLE public.usuarios (
   nombres text NOT NULL CHECK (btrim(nombres) <> ''::text),  
   apellidos text NOT NULL CHECK (btrim(apellidos) <> ''::text),  
   email text NOT NULL UNIQUE CHECK (email ~* '^[^@\s]+@[^@\s]+\.[^@\s]+$'::text),  
+  employee_code text UNIQUE,
   telefono text,  
   departamento text NOT NULL DEFAULT 'Administración General',
   has_monthly_plan boolean NOT NULL DEFAULT true,
@@ -156,11 +157,12 @@ CREATE TABLE public.suscripciones (
   CONSTRAINT suscripciones_empleado_id_fkey FOREIGN KEY (empleado_id) REFERENCES public.usuarios(id)  
 );  
 
--- 6. Reservas de Almuerzo Completo (Empleado o Familiar)
+-- 6. Reservas de Almuerzo del día (Empleado o Familiar)
 CREATE TABLE public.reservas (  
   id bigint GENERATED ALWAYS AS IDENTITY NOT NULL,  
   empleado_id uuid NOT NULL,  
   familiar_id bigint,  
+  employee_code text,
   fecha date NOT NULL,  
   dish_name text,
   entrada_nombre text,
@@ -173,6 +175,7 @@ CREATE TABLE public.reservas (
   estado USER-DEFINED NOT NULL DEFAULT 'ACTIVA'::estado_reserva,  
   tipo_tarifa text NOT NULL DEFAULT 'PARTICULAR' CHECK (tipo_tarifa IN ('PLAN_MENSUAL', 'PARTICULAR')),  
   precio numeric NOT NULL DEFAULT 18.00 CHECK (precio >= 0),  
+  cantidad integer NOT NULL DEFAULT 1 CHECK (cantidad > 0),
   vegetariano boolean NOT NULL DEFAULT false,  
   notas text,  
   creado_en timestamp with time zone NOT NULL DEFAULT now(),  
@@ -219,7 +222,7 @@ Supabase. Esta migración habilita las operaciones administrativas sobre
 `usuarios` y `familiares` y elimina la dependencia de `usuarios.id` respecto
 de `auth.users(id)`.
 
-Para habilitar la persistencia del combo **Almuerzo Completo** (Plato Principal + Sopa Boliviana), ejecuta la migración:
+Para habilitar la persistencia del combo **Almuerzo del día** (Plato Principal + Sopa Boliviana), ejecuta la migración:
 `supabase/migrations/20261023_almuerzo_completo_combo.sql` en el SQL Editor de Supabase:
 - Agrega las columnas `dish_name`, `plato_principal`, `sopa_nombre` y `es_almuerzo_completo` a las tablas `reservations` y `reservas`.
 - Asegura la existencia de las sopas tradicionales de la gastronomía boliviana en `platos_catalogo`.

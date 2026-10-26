@@ -110,13 +110,14 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                         value: 'empleado',
                         child: Text('Empleado'),
                       ),
+                      DropdownMenuItem(value: 'cocina', child: Text('Cocina')),
                       DropdownMenuItem(
                         value: 'encargado',
-                        child: Text('Encargado de Restaurante'),
+                        child: Text('Encargado'),
                       ),
                       DropdownMenuItem(
-                        value: 'institucion',
-                        child: Text('Administrador Institucional'),
+                        value: 'admin',
+                        child: Text('Administrador'),
                       ),
                     ],
                     onChanged: (val) {

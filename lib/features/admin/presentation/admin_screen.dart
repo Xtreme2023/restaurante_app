@@ -75,6 +75,9 @@ class _AdminScreenState extends ConsumerState<AdminScreen>
         ],
         bottom: TabBar(
           controller: _tabController,
+          isScrollable: true,
+          tabAlignment: TabAlignment.start,
+          labelPadding: const EdgeInsets.symmetric(horizontal: 12),
           labelColor: Colors.white,
           unselectedLabelColor: Colors.white60,
           indicatorColor: Colors.white,
@@ -103,7 +106,7 @@ class _AdminScreenState extends ConsumerState<AdminScreen>
           ? FloatingActionButton.extended(
               onPressed: () => _openEmployeeFormModal(context),
               icon: const Icon(Icons.person_add),
-              label: const Text('Registrar Empleado'),
+              label: const Text('Registrar Usuario'),
               backgroundColor: const Color(0xFF2563EB),
               foregroundColor: Colors.white,
             )
@@ -385,6 +388,25 @@ class _AdminScreenState extends ConsumerState<AdminScreen>
               const SizedBox(height: 4),
               Row(
                 children: [
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 2,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Colors.blue.withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Text(
+                      emp.roleLabel,
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.blue.shade800,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
                   Container(
                     padding: const EdgeInsets.symmetric(
                       horizontal: 8,
@@ -904,6 +926,10 @@ class _AdminScreenState extends ConsumerState<AdminScreen>
       text: employee?.apellidos ?? '',
     );
     final emailController = TextEditingController(text: employee?.email ?? '');
+    final employeeCodeController = TextEditingController(
+      text: employee?.employeeCode ??
+          'EMP-${(ref.read(adminEmployeesProvider).employees.length + 1).toString().padLeft(3, '0')}',
+    );
     final passwordController = TextEditingController();
     final telefonoController = TextEditingController(
       text: employee?.telefono ?? '',
@@ -911,6 +937,7 @@ class _AdminScreenState extends ConsumerState<AdminScreen>
     final deptController = TextEditingController(
       text: employee?.departamento ?? 'Finanzas y Contabilidad',
     );
+    String selectedRole = employee?.rol.toLowerCase() ?? 'empleado';
     bool hasMonthlyPlan = employee?.hasMonthlyPlan ?? true;
     bool useDefaultPassword = true;
 
@@ -987,7 +1014,7 @@ class _AdminScreenState extends ConsumerState<AdminScreen>
                                 Text(
                                   isEditing
                                       ? 'Editar Empleado'
-                                      : 'Registrar Nuevo Empleado',
+                                      : 'Registrar Nuevo Usuario',
                                   style: const TextStyle(
                                     fontSize: 18,
                                     fontWeight: FontWeight.bold,
@@ -1000,6 +1027,16 @@ class _AdminScreenState extends ConsumerState<AdminScreen>
                               ],
                             ),
                             const SizedBox(height: 12),
+                            TextField(
+                              controller: employeeCodeController,
+                              textCapitalization: TextCapitalization.characters,
+                              decoration: const InputDecoration(
+                                labelText: 'Código del empleado',
+                                hintText: 'EMP-042',
+                                prefixIcon: Icon(Icons.badge_outlined),
+                              ),
+                            ),
+                            const SizedBox(height: 10),
                             TextField(
                               controller: nombresController,
                               onChanged: (_) {
@@ -1144,6 +1181,49 @@ class _AdminScreenState extends ConsumerState<AdminScreen>
                                 labelText: 'Departamento / Área',
                                 prefixIcon: Icon(Icons.business_outlined),
                               ),
+                            ),
+                            const SizedBox(height: 12),
+                            DropdownButtonFormField<String>(
+                              initialValue:
+                                  const [
+                                    'admin',
+                                    'cocina',
+                                    'encargado',
+                                    'empleado',
+                                  ].contains(selectedRole)
+                                  ? selectedRole
+                                  : 'empleado',
+                              decoration: const InputDecoration(
+                                labelText: 'Rol del usuario',
+                                prefixIcon: Icon(Icons.security_outlined),
+                              ),
+                              items: const [
+                                DropdownMenuItem(
+                                  value: 'admin',
+                                  child: Text('Administrador'),
+                                ),
+                                DropdownMenuItem(
+                                  value: 'cocina',
+                                  child: Text('Cocina'),
+                                ),
+                                DropdownMenuItem(
+                                  value: 'encargado',
+                                  child: Text('Encargado'),
+                                ),
+                                DropdownMenuItem(
+                                  value: 'empleado',
+                                  child: Text('Empleado regular'),
+                                ),
+                              ],
+                              onChanged: isEditing
+                                  ? null
+                                  : (value) {
+                                      if (value != null) {
+                                        setModalState(
+                                          () => selectedRole = value,
+                                        );
+                                      }
+                                    },
                             ),
                             const SizedBox(height: 12),
 
@@ -1409,6 +1489,10 @@ class _AdminScreenState extends ConsumerState<AdminScreen>
                                             .trim();
                                         final email = emailController.text
                                             .trim();
+                                        final employeeCode =
+                                            employeeCodeController.text
+                                                .trim()
+                                                .toUpperCase();
                                         final password = useDefaultPassword
                                             ? '123456'
                                             : passwordController.text.trim();
@@ -1420,6 +1504,7 @@ class _AdminScreenState extends ConsumerState<AdminScreen>
                                             ci.isEmpty ||
                                             telefono.isEmpty ||
                                             email.isEmpty ||
+                                            employeeCode.isEmpty ||
                                             dept.isEmpty) {
                                           showWarning(
                                             'No se permite guardar al empleado con campos vacíos. Completa todos los campos obligatorios.',
@@ -1448,6 +1533,14 @@ class _AdminScreenState extends ConsumerState<AdminScreen>
                                         if (!numericRegex.hasMatch(telefono)) {
                                           showWarning(
                                             'El campo Teléfono solo permite números.',
+                                          );
+                                          return;
+                                        }
+                                        if (!RegExp(
+                                          r'^EMP-\d{3}$',
+                                        ).hasMatch(employeeCode)) {
+                                          showWarning(
+                                            'El código debe tener el formato EMP-042.',
                                           );
                                           return;
                                         }
@@ -1515,8 +1608,10 @@ class _AdminScreenState extends ConsumerState<AdminScreen>
                                                     apellidos: apellidos,
                                                     ci: ci,
                                                     email: email,
+                                                    employeeCode: employeeCode,
                                                     telefono: telefono,
                                                     departamento: dept,
+                                                    rol: employee.rol,
                                                     hasMonthlyPlan:
                                                         hasMonthlyPlan,
                                                   ),
@@ -1529,12 +1624,14 @@ class _AdminScreenState extends ConsumerState<AdminScreen>
                                                 )
                                                 .createEmployee(
                                                   ci: ci,
+                                                  employeeCode: employeeCode,
                                                   nombres: nombres,
                                                   apellidos: apellidos,
                                                   email: email,
                                                   password: password,
                                                   telefono: telefono,
                                                   departamento: dept,
+                                                  rol: selectedRole,
                                                   hasMonthlyPlan:
                                                       hasMonthlyPlan,
                                                   initialFamiliares:
@@ -1559,8 +1656,8 @@ class _AdminScreenState extends ConsumerState<AdminScreen>
                                                   isEditing
                                                       ? 'Empleado actualizado con éxito en Supabase.'
                                                       : requiresEmailConfirmation
-                                                      ? 'Empleado registrado. Debe confirmar su correo electrónico antes de iniciar sesión.'
-                                                      : 'Empleado registrado con éxito en Supabase.',
+                                                      ? 'Usuario registrado. Debe confirmar su correo electrónico antes de iniciar sesión.'
+                                                      : 'Usuario registrado con éxito en Supabase.',
                                                 ),
                                                 backgroundColor: Colors.green,
                                                 duration: const Duration(

@@ -8,7 +8,7 @@ extension ReservationMenuCategoryLabel on ReservationMenuCategory {
   String get label {
     switch (this) {
       case ReservationMenuCategory.almuerzoCompleto:
-        return 'Almuerzo Completo';
+        return 'Almuerzo del día';
       case ReservationMenuCategory.menuVegetariano:
         return 'Menú Vegetariano';
       case ReservationMenuCategory.platoEspecial:
@@ -52,6 +52,7 @@ class Reservation {
   final String id;
   final String userId;
   final String userName;
+  final String? storedEmployeeCode;
   final String? familiarId; // ID del familiar en Supabase (public.familiares)
   final String?
   beneficiaryName; // Nombre del beneficiario (Empleado o Familiar)
@@ -67,6 +68,7 @@ class Reservation {
   final String type; // 'diaria' o 'pension'
   final String status; // 'confirmada', 'cancelada', 'entregada'
   final double price; // 15.0 para Plan Mensual, 18.0 para Particular
+  final int quantity;
   final String? notes;
   final DateTime createdAt;
 
@@ -74,10 +76,11 @@ class Reservation {
     required this.id,
     required this.userId,
     this.userName = 'Usuario',
+    this.storedEmployeeCode,
     this.familiarId,
     this.beneficiaryName,
     this.dishId,
-    this.dishName = 'Almuerzo Completo del Día',
+    this.dishName = 'Almuerzo del día',
     this.entradaNombre,
     this.platoPrincipal,
     this.sopaNombre,
@@ -87,6 +90,7 @@ class Reservation {
     this.type = 'diaria',
     this.status = 'confirmada',
     this.price = 18.0,
+    this.quantity = 1,
     this.notes,
     required this.createdAt,
   });
@@ -98,10 +102,41 @@ class Reservation {
 
   String get displayName => beneficiaryName ?? userName;
 
+  String get employeeCode {
+    final storedCode = storedEmployeeCode?.trim().toUpperCase();
+    if (storedCode != null && RegExp(r'^EMP-\d{3}$').hasMatch(storedCode)) {
+      return storedCode;
+    }
+    final normalized = userId.trim();
+    if (normalized.isEmpty) return 'EMP-000';
+    final suffix = normalized.replaceAll(RegExp(r'[^A-Za-z0-9]'), '');
+    final numericCode = suffix.codeUnits.fold<int>(
+      0,
+      (total, unit) => (total * 31 + unit) % 1000,
+    );
+    return 'EMP-${numericCode.toString().padLeft(3, '0')}';
+  }
+
+  String get pickupCode {
+    const weekdays = <String>[
+      'LUNES',
+      'MARTES',
+      'MIERCOLES',
+      'JUEVES',
+      'VIERNES',
+      'SABADO',
+      'DOMINGO',
+    ];
+    final dateText =
+        '${date.year.toString().padLeft(4, '0')}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
+    return '${employeeCode}_${weekdays[date.weekday - 1]}_$dateText';
+  }
+
   Reservation copyWith({
     String? id,
     String? userId,
     String? userName,
+    String? storedEmployeeCode,
     String? familiarId,
     String? beneficiaryName,
     String? dishId,
@@ -115,6 +150,7 @@ class Reservation {
     String? type,
     String? status,
     double? price,
+    int? quantity,
     String? notes,
     DateTime? createdAt,
   }) {
@@ -122,6 +158,7 @@ class Reservation {
       id: id ?? this.id,
       userId: userId ?? this.userId,
       userName: userName ?? this.userName,
+      storedEmployeeCode: storedEmployeeCode ?? this.storedEmployeeCode,
       familiarId: familiarId ?? this.familiarId,
       beneficiaryName: beneficiaryName ?? this.beneficiaryName,
       dishId: dishId ?? this.dishId,
@@ -135,6 +172,7 @@ class Reservation {
       type: type ?? this.type,
       status: status ?? this.status,
       price: price ?? this.price,
+      quantity: quantity ?? this.quantity,
       notes: notes ?? this.notes,
       createdAt: createdAt ?? this.createdAt,
     );
@@ -152,11 +190,11 @@ class Reservation {
 
     if (rawDish.isEmpty) {
       if (principal != null && sopa != null) {
-        rawDish = 'Almuerzo Completo ($principal + $sopa)';
+        rawDish = 'Almuerzo del día ($principal + $sopa)';
       } else if (principal != null) {
-        rawDish = 'Almuerzo Completo ($principal)';
+        rawDish = 'Almuerzo del día ($principal)';
       } else {
-        rawDish = 'Almuerzo Completo del Día';
+        rawDish = 'Almuerzo del día';
       }
     }
 
@@ -170,6 +208,7 @@ class Reservation {
       id: json['id']?.toString() ?? '',
       userId: (json['empleado_id'] ?? json['user_id'])?.toString() ?? '',
       userName: json['user_name']?.toString() ?? 'Usuario',
+      storedEmployeeCode: json['employee_code']?.toString(),
       familiarId: json['familiar_id']?.toString(),
       beneficiaryName: json['beneficiary_name']?.toString(),
       dishId: json['dish_id']?.toString(),
@@ -181,6 +220,7 @@ class Reservation {
           json['es_almuerzo_completo'] == true ||
           json['is_almuerzo_completo'] == true ||
           rawDish.contains('Almuerzo Completo') ||
+          rawDish.contains('Almuerzo del día') ||
           category == ReservationMenuCategory.almuerzoCompleto,
       menuCategory: category,
       date: json['reservation_date'] != null
@@ -196,6 +236,10 @@ class Reservation {
           (json['precio'] as num?)?.toDouble() ??
           (json['price'] as num?)?.toDouble() ??
           18.0,
+      quantity:
+          (json['quantity'] as num?)?.toInt() ??
+          (json['cantidad'] as num?)?.toInt() ??
+          1,
       notes: json['notes'] as String? ?? json['notas'] as String?,
       createdAt: json['creado_en'] != null
           ? DateTime.parse(json['creado_en'] as String)
@@ -212,6 +256,7 @@ class Reservation {
       'id': id,
       'user_id': userId,
       'empleado_id': userId,
+      'employee_code': storedEmployeeCode,
       if (familiarId != null) 'familiar_id': familiarId,
       'beneficiary_name': beneficiaryName ?? userName,
       'dish_id': dishId,
@@ -229,6 +274,7 @@ class Reservation {
       'status': status,
       'precio': price,
       'price': price,
+      'quantity': quantity,
       'notes': notes,
       'notas': notes,
       'created_at': createdAt.toIso8601String(),

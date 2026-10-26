@@ -25,7 +25,7 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
 
   DailyMenu? _dailyMenu;
   String _selectedMenuType =
-      'Almuerzo Completo'; // 'Almuerzo Completo', 'Vegetariano', 'Especial'
+      'Almuerzo del día'; // 'Almuerzo del día', 'Vegetariano', 'Especial'
   Familiar? _selectedFamiliar; // null = para el empleado
   bool _isLoadingMenu = true;
 
@@ -435,9 +435,9 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
                         ),
                         items: [
                           DropdownMenuItem(
-                            value: 'Almuerzo Completo',
+                            value: 'Almuerzo del día',
                             child: Text(
-                              '🍽️ Almuerzo Completo (${_dailyMenu != null ? _dailyMenu!.almuerzoCompleto.summary : "Ensalada + Sopa del día + Segundo"})',
+                              '🍽️ Almuerzo del día (${_dailyMenu != null ? _dailyMenu!.almuerzoCompleto.summary : "Ensalada + Sopa del día + Segundo"})',
                               overflow: TextOverflow.ellipsis,
                               style: const TextStyle(fontSize: 13),
                             ),
@@ -650,7 +650,7 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
       dishDescription =
           'Especial: ${_dailyMenu?.platoEspecial.name ?? "Opción Especial"}';
     } else {
-      dishDescription = 'Almuerzo Completo (Ensalada + Sopa del día + Segundo)';
+      dishDescription = 'Almuerzo del día (Ensalada + Sopa del día + Segundo)';
     }
 
     if (DailyMenuPolicy.isDessertDay(selectedDate) &&
