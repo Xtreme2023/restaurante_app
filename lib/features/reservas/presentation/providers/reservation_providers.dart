@@ -13,9 +13,31 @@ final reservationRepositoryProvider = Provider<ReservationRepository>((ref) {
   return SupabaseReservationRepository();
 });
 
+/// Modo demostración: permite reservar y entregar fuera de horario.
+/// Solo el administrador lo activa; no se guarda y se apaga al reiniciar.
+class DemoModeNotifier extends Notifier<bool> {
+  @override
+  bool build() => false;
+
+  void setEnabled(bool enabled) => state = enabled;
+}
+
+final demoModeProvider = NotifierProvider<DemoModeNotifier, bool>(
+  DemoModeNotifier.new,
+);
+
+/// Si el usuario actual es una cuenta de prueba (usuarios.es_cuenta_prueba).
+/// Habilita en su pantalla el botón para regenerar los tickets de la semana.
+final testAccountProvider = FutureProvider<bool>((ref) async {
+  final user = ref.watch(authProvider);
+  final repo = ref.watch(reservationRepositoryProvider);
+  if (user == null || repo is! PickupCodeRepository) return false;
+  return (repo as PickupCodeRepository).isTestAccount(user.id);
+});
+
 /// Proveedor de la instancia del caso de uso de políticas
 final reservationPolicyUseCaseProvider = Provider<ReservationPolicy>((ref) {
-  return ReservationPolicy();
+  return ReservationPolicy(ignoreServiceHours: ref.watch(demoModeProvider));
 });
 
 /// Notifier para la fecha seleccionada en el calendario
@@ -34,6 +56,10 @@ class SelectedDateNotifier extends Notifier<DateTime> {
 final selectedDateProvider = NotifierProvider<SelectedDateNotifier, DateTime>(
   SelectedDateNotifier.new,
 );
+
+/// Reloj real del sistema. Las acciones con plazo (cancelar) lo consultan en
+/// el momento de ejecutarse; las pruebas pueden sobrescribirlo.
+final clockProvider = Provider<DateTime Function()>((ref) => DateTime.now);
 
 /// Notifier para la hora actual del sistema
 class CurrentTimeNotifier extends Notifier<DateTime> {
@@ -100,6 +126,14 @@ final reservationPolicyProvider = Provider<ReservationPolicyState>((ref) {
 
 /// Notifier para la gestión reactiva de las reservas del usuario
 class UserReservationsNotifier extends Notifier<List<Reservation>> {
+  // Cambios locales hechos mientras una carga estaba en curso. Al terminar la
+  // carga se aplican sobre la lista recibida para no perderlos ni duplicarlos.
+  int _loadsInFlight = 0;
+  final Map<String, Reservation> _changedDuringLoad = {};
+
+  /// Motivo del último fallo de [createReservation], para mostrarlo al usuario.
+  String? lastError;
+
   @override
   List<Reservation> build() {
     final user = ref.watch(authProvider);
@@ -108,13 +142,40 @@ class UserReservationsNotifier extends Notifier<List<Reservation>> {
   }
 
   Future<void> loadReservations({String userId = ''}) async {
+    _loadsInFlight++;
     try {
       final repo = ref.read(reservationRepositoryProvider);
       final list = await repo.getUserReservations(userId);
-      state = list;
+      state = _mergeById(list, _changedDuringLoad.values);
     } catch (e) {
       debugPrint('⚠️ Error cargando reservas del usuario: $e');
+    } finally {
+      _loadsInFlight--;
+      if (_loadsInFlight == 0) _changedDuringLoad.clear();
     }
+  }
+
+  /// Reemplaza por id las reservas de [base] que cambiaron y antepone las
+  /// nuevas. Una misma reserva nunca aparece dos veces.
+  static List<Reservation> _mergeById(
+    List<Reservation> base,
+    Iterable<Reservation> changed,
+  ) {
+    final changedById = {for (final r in changed) r.id: r};
+    final baseIds = {for (final r in base) r.id};
+    return [
+      ...changedById.values.where((r) => !baseIds.contains(r.id)),
+      for (final r in base) changedById[r.id] ?? r,
+    ];
+  }
+
+  void _applyLocalChanges(Iterable<Reservation> changed) {
+    if (_loadsInFlight > 0) {
+      for (final r in changed) {
+        _changedDuringLoad[r.id] = r;
+      }
+    }
+    state = _mergeById(state, changed);
   }
 
   Future<bool> createReservation({
@@ -148,6 +209,7 @@ class UserReservationsNotifier extends Notifier<List<Reservation>> {
         id: const Uuid().v4(),
         userId: userId,
         storedEmployeeCode: currentUser?.employeeCode,
+        storedPickupCode: Reservation.generatePickupCode(),
         userName: userName,
         familiarId: familiarId,
         beneficiaryName: beneficiaryName ?? userName,
@@ -166,10 +228,13 @@ class UserReservationsNotifier extends Notifier<List<Reservation>> {
         createdAt: DateTime.now(),
       );
 
-      await repo.createReservation(newRes);
-      state = [newRes, ...state];
+      final saved = await repo.createReservation(newRes);
+      _applyLocalChanges([saved]);
+      lastError = null;
       return true;
     } catch (e) {
+      debugPrint('⚠️ No se pudo crear la reserva: $e');
+      lastError = e.toString().replaceFirst('Exception: ', '');
       return false;
     }
   }
@@ -207,6 +272,7 @@ class UserReservationsNotifier extends Notifier<List<Reservation>> {
         id: const Uuid().v4(),
         userId: userId,
         storedEmployeeCode: currentUser?.employeeCode,
+        storedPickupCode: Reservation.generatePickupCode(),
         userName: userName,
         beneficiaryName: userName,
         dishName: finalDishName,
@@ -222,8 +288,7 @@ class UserReservationsNotifier extends Notifier<List<Reservation>> {
         notes: notes,
         createdAt: DateTime.now(),
       );
-      await repo.createReservation(res);
-      createdList.add(res);
+      createdList.add(await repo.createReservation(res));
       count++;
     }
 
@@ -233,6 +298,7 @@ class UserReservationsNotifier extends Notifier<List<Reservation>> {
         id: const Uuid().v4(),
         userId: userId,
         storedEmployeeCode: currentUser?.employeeCode,
+        storedPickupCode: Reservation.generatePickupCode(),
         userName: userName,
         familiarId: famId,
         beneficiaryName: famName,
@@ -249,28 +315,55 @@ class UserReservationsNotifier extends Notifier<List<Reservation>> {
         notes: notes,
         createdAt: DateTime.now(),
       );
-      await repo.createReservation(res);
-      createdList.add(res);
+      createdList.add(await repo.createReservation(res));
       count++;
     }
 
-    state = [...createdList, ...state];
+    _applyLocalChanges(createdList);
     return count;
   }
 
-  Future<bool> cancelReservation(String reservationId) async {
+  /// Cancela una reserva validando el plazo con la hora real del momento en
+  /// que se ejecuta, no con la hora en que se abrió la pantalla: si se abrió a
+  /// las 8:57 y se confirma a las 9:03, se rechaza.
+  Future<PolicyCheckResult> cancelReservation(String reservationId) async {
+    final reservation = state.where((r) => r.id == reservationId).firstOrNull;
+    if (reservation == null) {
+      return const PolicyCheckResult(
+        isAllowed: false,
+        message: 'No se encontró la reserva. Actualiza la lista.',
+      );
+    }
+    if (!reservation.isConfirmed) {
+      return const PolicyCheckResult(
+        isAllowed: false,
+        message: 'Solo se pueden cancelar reservas confirmadas.',
+      );
+    }
+
+    final now = ref.read(clockProvider)();
+    final check = ref
+        .read(reservationPolicyUseCaseProvider)
+        .checkCanCancel(reservation.date, now);
+    if (!check.isAllowed) {
+      // Actualiza la hora de la UI para que el botón refleje el bloqueo.
+      ref.read(currentTimeProvider.notifier).setTime(now);
+      return check;
+    }
+
     try {
       final repo = ref.read(reservationRepositoryProvider);
       await repo.cancelReservation(reservationId);
-      state = state.map((r) {
-        if (r.id == reservationId) {
-          return r.copyWith(status: 'cancelada');
-        }
-        return r;
-      }).toList();
-      return true;
+      _applyLocalChanges([reservation.copyWith(status: 'cancelada')]);
+      return PolicyCheckResult.allowed;
     } catch (e) {
-      return false;
+      debugPrint('⚠️ Error al cancelar la reserva: $e');
+      return PolicyCheckResult(
+        isAllowed: false,
+        message: e.toString().contains('PLAZO_CANCELACION_VENCIDO')
+            ? 'El plazo de cancelación para hoy venció a las 8:59 AM.'
+            : 'No se pudo cancelar la reserva. Intenta nuevamente.',
+      );
     }
   }
 
@@ -282,11 +375,11 @@ class UserReservationsNotifier extends Notifier<List<Reservation>> {
       }
       final quantityRepo = repo as ReservationQuantityRepository;
       await quantityRepo.updateReservationQuantity(reservationId, quantity);
-      state = state
-          .map(
-            (r) => r.id == reservationId ? r.copyWith(quantity: quantity) : r,
-          )
-          .toList();
+      _applyLocalChanges(
+        state
+            .where((r) => r.id == reservationId)
+            .map((r) => r.copyWith(quantity: quantity)),
+      );
       return true;
     } catch (e) {
       debugPrint('⚠️ Error actualizando cantidad de almuerzos: $e');

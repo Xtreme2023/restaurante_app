@@ -50,19 +50,8 @@ class SupabaseAuthRepository {
     monthlyExpense: 0.0,
   );
 
-  static final UserProfile demoCocina = UserProfile(
-    id: 'demo-chef-456',
-    email: 'carlos.chef@restaurante.com',
-    fullName: 'Chef Carlos Mendoza',
-    role: 'cocina',
-    department: 'Cocina & Restaurante',
-    isPensioner: false,
-    monthlyExpense: 0.0,
-  );
-
   // Aliases para compatibilidad hacia atrás
   static UserProfile get demoInstitucion => demoAdmin;
-  static UserProfile get demoEncargado => demoCocina;
 
   Future<UserProfile?> getCurrentUser() async {
     final client = SupabaseConfig.client;
@@ -202,13 +191,6 @@ class SupabaseAuthRepository {
       prof = demoAdmin.copyWith(
         email: email,
         fullName: 'Administrador ${email.split('@').first}',
-      );
-    } else if (lower.contains('cocina') ||
-        lower.contains('chef') ||
-        lower.contains('encargado')) {
-      prof = demoCocina.copyWith(
-        email: email,
-        fullName: 'Cocinero ${email.split('@').first}',
       );
     } else {
       prof = demoEmpleado.copyWith(

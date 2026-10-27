@@ -3,22 +3,22 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:table_calendar/table_calendar.dart';
 import 'package:restaurante_app/core/utils/date_utils.dart';
-import 'package:restaurante_app/features/auth/presentation/providers/auth_provider.dart';
 import 'package:restaurante_app/features/menu/data/dish_image_resolver.dart';
 import 'package:restaurante_app/features/menu/domain/bolivian_dish_entity.dart';
 import 'package:restaurante_app/features/menu/presentation/providers/weekly_menu_provider.dart';
 import 'package:restaurante_app/features/reservas/domain/reservation_entity.dart';
+import 'package:restaurante_app/features/reservas/domain/reservation_repository.dart';
 import 'package:restaurante_app/features/reservas/domain/usecases/reservation_policy.dart';
 import 'package:restaurante_app/features/reservas/presentation/providers/reservation_providers.dart';
 
-class KitchenScreen extends ConsumerStatefulWidget {
-  const KitchenScreen({super.key});
+class KitchenPanel extends ConsumerStatefulWidget {
+  const KitchenPanel({super.key});
 
   @override
-  ConsumerState<KitchenScreen> createState() => _KitchenScreenState();
+  ConsumerState<KitchenPanel> createState() => _KitchenPanelState();
 }
 
-class _KitchenScreenState extends ConsumerState<KitchenScreen>
+class _KitchenPanelState extends ConsumerState<KitchenPanel>
     with SingleTickerProviderStateMixin {
   late TabController _tabController;
   DateTime _selectedDate = DateTime.now();
@@ -60,7 +60,7 @@ class _KitchenScreenState extends ConsumerState<KitchenScreen>
           textCapitalization: TextCapitalization.characters,
           decoration: const InputDecoration(
             labelText: 'Escanea o escribe el código QR',
-            hintText: 'EMP-042_MARTES_2026-10-27',
+            hintText: 'A3F9-0C7E',
             prefixIcon: Icon(Icons.qr_code_scanner),
           ),
           onSubmitted: (value) => Navigator.pop(ctx, value),
@@ -77,33 +77,8 @@ class _KitchenScreenState extends ConsumerState<KitchenScreen>
         ],
       ),
     );
-    if (!mounted || code == null) return;
-
-    final normalizedCode = code.trim().toUpperCase();
-    if (normalizedCode.isEmpty) return;
-    final order = _orders.cast<Reservation?>().firstWhere(
-      (item) => item?.pickupCode.toUpperCase() == normalizedCode,
-      orElse: () => null,
-    );
-    if (order == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Código inválido o sin reserva para este día.'),
-          backgroundColor: Colors.red,
-        ),
-      );
-      return;
-    }
-    if (order.isDelivered) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Este almuerzo ya fue registrado como retirado.'),
-          backgroundColor: Colors.orange,
-        ),
-      );
-      return;
-    }
-    await _markAsDelivered(order);
+    if (!mounted || code == null || code.trim().isEmpty) return;
+    await _verifyPickupCode(code);
   }
 
   Future<void> _scanWithCamera() async {
@@ -116,30 +91,74 @@ class _KitchenScreenState extends ConsumerState<KitchenScreen>
   }
 
   Future<void> _verifyPickupCode(String code) async {
-    final normalizedCode = code.trim().toUpperCase();
-    final order = _orders.cast<Reservation?>().firstWhere(
-      (item) => item?.pickupCode.toUpperCase() == normalizedCode,
-      orElse: () => null,
-    );
-    if (order == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Código inválido o sin reserva para este día.'),
-          backgroundColor: Colors.red,
-        ),
+    final repo = ref.read(reservationRepositoryProvider);
+    final policy = ref.read(reservationPolicyUseCaseProvider);
+
+    // Con servidor, el canje lo valida y registra la RPC de forma atómica.
+    if (repo is PickupCodeRepository) {
+      final PickupCodeResult? serverResult;
+      try {
+        serverResult = await (repo as PickupCodeRepository).redeemPickupCode(
+          code,
+          ignoreServiceHours: policy.ignoreServiceHours,
+        );
+      } catch (e) {
+        _showPickupMessage('No se pudo validar el código: $e', Colors.red);
+        return;
+      }
+      if (serverResult != null) {
+        await _loadOrders();
+        if (!mounted) return;
+        if (serverResult.isValid) {
+          final normalized = code.trim().toUpperCase();
+          final order = _orders
+              .where((o) => o.pickupCode == normalized)
+              .firstOrNull;
+          _showPickupMessage(
+            'Almuerzo entregado a ${order?.displayName ?? 'comensal'}',
+            Colors.green,
+          );
+        } else {
+          _showPickupMessage(
+            serverResult.message,
+            serverResult.status == PickupCodeStatus.alreadyDelivered
+                ? Colors.orange
+                : Colors.red,
+          );
+        }
+        return;
+      }
+    }
+
+    // Sin servidor (modo local): se consultan las reservas actuales porque el
+    // empleado pudo cancelar después de que cocina cargó la lista.
+    try {
+      final fresh = await repo.getAllReservationsForDate(_selectedDate);
+      if (!mounted) return;
+      setState(() => _orders = fresh);
+    } catch (e) {
+      debugPrint('⚠️ No se pudieron refrescar pedidos al verificar QR: $e');
+    }
+    if (!mounted) return;
+
+    final result = policy.resolvePickupCode(_orders, code);
+    if (!result.isValid) {
+      _showPickupMessage(
+        result.message,
+        result.status == PickupCodeStatus.alreadyDelivered
+            ? Colors.orange
+            : Colors.red,
       );
       return;
     }
-    if (order.isDelivered) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Este almuerzo ya fue registrado como retirado.'),
-          backgroundColor: Colors.orange,
-        ),
-      );
-      return;
-    }
-    await _markAsDelivered(order);
+    await _markAsDelivered(result.reservation!);
+  }
+
+  void _showPickupMessage(String message, Color color) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message), backgroundColor: color));
   }
 
   Future<void> _loadOrders() async {
@@ -156,7 +175,7 @@ class _KitchenScreenState extends ConsumerState<KitchenScreen>
         });
       }
     } catch (e) {
-      debugPrint('⚠️ Error al cargar pedidos en KitchenScreen: $e');
+      debugPrint('⚠️ Error al cargar pedidos en KitchenPanel: $e');
     } finally {
       if (mounted) {
         setState(() {
@@ -167,10 +186,22 @@ class _KitchenScreenState extends ConsumerState<KitchenScreen>
   }
 
   Future<void> _markAsDelivered(Reservation order) async {
-    final deliveryCheck = ReservationPolicy().checkCanDeliver(
-      order.date,
-      DateTime.now(),
-    );
+    if (!order.isConfirmed) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            order.isCancelled
+                ? 'La reserva fue cancelada; no se puede entregar.'
+                : 'Este almuerzo ya fue registrado como retirado.',
+          ),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+    final deliveryCheck = ref
+        .read(reservationPolicyUseCaseProvider)
+        .checkCanDeliver(order.date, DateTime.now());
     if (!deliveryCheck.isAllowed) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -236,82 +267,66 @@ class _KitchenScreenState extends ConsumerState<KitchenScreen>
     }
   }
 
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Colors.transparent,
-      appBar: AppBar(
-        title: const Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+  Future<void> _openPickupOptions() async {
+    await showModalBottomSheet<void>(
+      context: context,
+      builder: (ctx) => SafeArea(
+        child: Wrap(
           children: [
-            Text(
-              'Panel de Cocina',
-              style: TextStyle(
-                fontWeight: FontWeight.bold,
-                fontSize: 20,
-                color: Colors.white,
-              ),
+            ListTile(
+              leading: const Icon(Icons.camera_alt_outlined),
+              title: const Text('Escanear con cámara'),
+              onTap: () {
+                Navigator.pop(ctx);
+                _scanWithCamera();
+              },
             ),
-            Text(
-              'Métricas de producción y menú semanal boliviano',
-              style: TextStyle(fontSize: 12, color: Colors.white70),
+            ListTile(
+              leading: const Icon(Icons.keyboard_outlined),
+              title: const Text('Escribir o usar lector USB'),
+              onTap: () {
+                Navigator.pop(ctx);
+                _scanPickupCode();
+              },
             ),
           ],
         ),
-        backgroundColor: Colors.transparent,
-        foregroundColor: Colors.white,
-        elevation: 0,
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.qr_code_scanner, color: Colors.white),
-            tooltip: 'Registrar retiro por QR',
-            onPressed: () async {
-              await showModalBottomSheet<void>(
-                context: context,
-                builder: (ctx) => SafeArea(
-                  child: Wrap(
-                    children: [
-                      ListTile(
-                        leading: const Icon(Icons.camera_alt_outlined),
-                        title: const Text('Escanear con cámara'),
-                        onTap: () {
-                          Navigator.pop(ctx);
-                          _scanWithCamera();
-                        },
-                      ),
-                      ListTile(
-                        leading: const Icon(Icons.keyboard_outlined),
-                        title: const Text('Escribir o usar lector USB'),
-                        onTap: () {
-                          Navigator.pop(ctx);
-                          _scanPickupCode();
-                        },
-                      ),
-                    ],
-                  ),
+      ),
+    );
+  }
+
+  /// Panel de cocina embebido como pestaña del Panel Administrador.
+  /// No tiene AppBar propio: el título y el cierre de sesión los
+  /// provee AdminScreen; aquí solo se muestran las acciones operativas.
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 8, 8, 0),
+          child: Row(
+            children: [
+              const Expanded(
+                child: Text(
+                  'Métricas de producción y menú semanal boliviano',
+                  style: TextStyle(fontSize: 12, color: Colors.white70),
+                  overflow: TextOverflow.ellipsis,
                 ),
-              );
-            },
+              ),
+              IconButton(
+                icon: const Icon(Icons.qr_code_scanner, color: Colors.white),
+                tooltip: 'Registrar retiro por QR',
+                onPressed: _openPickupOptions,
+              ),
+              IconButton(
+                icon: const Icon(Icons.refresh, color: Colors.white),
+                tooltip: 'Actualizar pedidos y menú',
+                onPressed: _loadOrders,
+              ),
+            ],
           ),
-          IconButton(
-            icon: const Icon(Icons.refresh, color: Colors.white),
-            tooltip: 'Actualizar',
-            onPressed: () {
-              _loadOrders();
-              ref
-                  .read(weeklyMenuProvider.notifier)
-                  .loadWeek(ref.read(selectedWeekProvider));
-            },
-          ),
-          IconButton(
-            icon: const Icon(Icons.logout, color: Colors.white),
-            tooltip: 'Cerrar Sesión',
-            onPressed: () {
-              ref.read(authProvider.notifier).signOut();
-            },
-          ),
-        ],
-        bottom: TabBar(
+        ),
+        TabBar.secondary(
           controller: _tabController,
           isScrollable: true,
           tabAlignment: TabAlignment.start,
@@ -319,29 +334,28 @@ class _KitchenScreenState extends ConsumerState<KitchenScreen>
           labelColor: Colors.white,
           unselectedLabelColor: Colors.white60,
           indicatorColor: Colors.white,
-          indicatorWeight: 3,
+          dividerColor: Colors.white24,
           tabs: const [
-            Tab(
-              icon: Icon(Icons.dashboard_outlined),
-              text: 'Resumen & Totales',
-            ),
-            Tab(icon: Icon(Icons.card_membership), text: 'Plan mensual'),
-            Tab(icon: Icon(Icons.person), text: 'Empleados regulares'),
-            Tab(icon: Icon(Icons.restaurant_menu), text: 'Menú Semanal'),
-            Tab(icon: Icon(Icons.calendar_month), text: 'Calendario'),
+            Tab(text: 'Resumen & Totales'),
+            Tab(text: 'Plan mensual'),
+            Tab(text: 'Empleados regulares'),
+            Tab(text: 'Menú Semanal'),
+            Tab(text: 'Calendario'),
           ],
         ),
-      ),
-      body: TabBarView(
-        controller: _tabController,
-        children: [
-          _buildSummaryAndOrdersTab(),
-          _buildEmployeeReservationsTab(monthlyPlan: true),
-          _buildEmployeeReservationsTab(monthlyPlan: false),
-          _buildWeeklyMenuPlanningTab(),
-          _buildReservationsCalendarTab(),
-        ],
-      ),
+        Expanded(
+          child: TabBarView(
+            controller: _tabController,
+            children: [
+              _buildSummaryAndOrdersTab(),
+              _buildEmployeeReservationsTab(monthlyPlan: true),
+              _buildEmployeeReservationsTab(monthlyPlan: false),
+              _buildWeeklyMenuPlanningTab(),
+              _buildReservationsCalendarTab(),
+            ],
+          ),
+        ),
+      ],
     );
   }
 
@@ -715,10 +729,9 @@ class _KitchenScreenState extends ConsumerState<KitchenScreen>
                           o.userId == order.userId && o.status != 'cancelada',
                     )
                     .fold<double>(0, (sum, item) => sum + _displayPrice(item));
-                final deliveryCheck = ReservationPolicy().checkCanDeliver(
-                  order.date,
-                  DateTime.now(),
-                );
+                final deliveryCheck = ref
+                    .watch(reservationPolicyUseCaseProvider)
+                    .checkCanDeliver(order.date, DateTime.now());
 
                 return Container(
                   margin: const EdgeInsets.only(bottom: 10),
@@ -1085,10 +1098,9 @@ class _KitchenScreenState extends ConsumerState<KitchenScreen>
 
   Widget _buildBeneficiaryRow(Reservation reservation) {
     final isDelivered = reservation.isDelivered;
-    final deliveryCheck = ReservationPolicy().checkCanDeliver(
-      reservation.date,
-      DateTime.now(),
-    );
+    final deliveryCheck = ref
+        .watch(reservationPolicyUseCaseProvider)
+        .checkCanDeliver(reservation.date, DateTime.now());
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 4),
       child: Row(

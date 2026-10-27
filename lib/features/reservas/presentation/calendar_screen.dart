@@ -691,7 +691,11 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
         ),
       );
     } else {
-      _showPolicyError(context, 'No se pudo registrar la reserva.');
+      final error = ref.read(userReservationsProvider.notifier).lastError;
+      _showPolicyError(
+        context,
+        'No se pudo registrar la reserva${error != null ? ': $error' : '.'}',
+      );
     }
   }
 
@@ -722,13 +726,15 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
 
     if (confirm != true || !context.mounted) return;
 
-    final success = await ref
+    final result = await ref
         .read(userReservationsProvider.notifier)
         .cancelReservation(reservationId);
 
     if (!context.mounted) return;
 
-    if (success) {
+    if (!result.isAllowed) {
+      _showPolicyError(context, result.message);
+    } else {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Tu reserva ha sido cancelada exitosamente.'),

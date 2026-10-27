@@ -1,12 +1,17 @@
 import 'package:flutter/foundation.dart';
 import 'package:restaurante_app/core/config/supabase_config.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:restaurante_app/core/utils/date_utils.dart';
 import 'package:restaurante_app/features/reservas/domain/holiday_entity.dart';
 import 'package:restaurante_app/features/reservas/domain/reservation_entity.dart';
 import 'package:restaurante_app/features/reservas/domain/reservation_repository.dart';
+import 'package:restaurante_app/features/reservas/domain/usecases/reservation_policy.dart';
 
 class SupabaseReservationRepository
-    implements ReservationRepository, ReservationQuantityRepository {
+    implements
+        ReservationRepository,
+        ReservationQuantityRepository,
+        PickupCodeRepository {
   final Map<String, int> _monthlyQuantities = {};
   final Map<String, String> _monthlyStatuses = {};
   // Almacén en memoria para respaldo y funcionamiento sin conexión / demo
@@ -158,6 +163,9 @@ class SupabaseReservationRepository
         employeeCode: profile.$3,
         reservations: reservations,
         hasMonthlyPlan: profile.$1,
+        tickets: profile.$1
+            ? await _monthlyTickets(client, userId: userId)
+            : const {},
       );
     } catch (e1) {
       try {
@@ -182,6 +190,9 @@ class SupabaseReservationRepository
           employeeCode: profile.$3,
           reservations: reservations,
           hasMonthlyPlan: profile.$1,
+          tickets: profile.$1
+              ? await _monthlyTickets(client, userId: userId)
+              : const {},
         );
       } catch (e2) {
         debugPrint(
@@ -224,6 +235,7 @@ class SupabaseReservationRepository
     String employeeCode = '',
     required List<Reservation> reservations,
     required bool hasMonthlyPlan,
+    Map<String, Map<String, dynamic>> tickets = const {},
   }) {
     if (!hasMonthlyPlan || userId.isEmpty) {
       return reservations..sort((a, b) => b.date.compareTo(a.date));
@@ -245,16 +257,21 @@ class SupabaseReservationRepository
           existingDays.any((date) => AppDateUtils.isSameDay(date, day))) {
         continue;
       }
+      final id = _monthlyId(userId, day.toIso8601String().substring(0, 10));
       generated.add(
         Reservation(
-          id: 'monthly-$userId-${day.toIso8601String().substring(0, 10)}',
+          id: id,
           userId: userId,
           userName: userName,
           storedEmployeeCode: employeeCode,
+          storedPickupCode: tickets[id]?['codigo_retiro']?.toString(),
           beneficiaryName: userName,
           date: day,
           type: 'pension',
-          status: 'confirmada',
+          status:
+              tickets[id]?['estado']?.toString() ??
+              _monthlyStatuses[id] ??
+              'confirmada',
           price: 15.0,
           notes: 'Plan Mensual',
           createdAt: day,
@@ -295,6 +312,7 @@ class SupabaseReservationRepository
             .where((r) => r.familiarId == null)
             .map((r) => r.userId)
             .toSet();
+        final tickets = await _monthlyTickets(client, dateStr: dateStr);
         final monthlyOrders = (monthlyResponse as List<dynamic>)
             .map((row) => Map<String, dynamic>.from(row as Map))
             .where((user) {
@@ -312,9 +330,10 @@ class SupabaseReservationRepository
               }.contains(role);
             })
             .where((user) => !existingUserIds.contains(user['id'].toString()))
-            .map(
-              (user) => Reservation(
-                id: 'monthly-${user['id']}-$dateStr',
+            .map((user) {
+              final id = _monthlyId(user['id'].toString(), dateStr);
+              return Reservation(
+                id: id,
                 userId: user['id'].toString(),
                 userName: '${user['nombres'] ?? ''} ${user['apellidos'] ?? ''}'
                     .trim(),
@@ -322,19 +341,20 @@ class SupabaseReservationRepository
                     '${user['nombres'] ?? ''} ${user['apellidos'] ?? ''}'
                         .trim(),
                 storedEmployeeCode: user['employee_code']?.toString(),
+                storedPickupCode: tickets[id]?['codigo_retiro']?.toString(),
                 dishName: 'Almuerzo del día',
                 date: date,
                 type: 'pension',
                 status:
-                    _monthlyStatuses['monthly-${user['id']}-$dateStr'] ??
+                    tickets[id]?['estado']?.toString() ??
+                    _monthlyStatuses[id] ??
                     'confirmada',
                 price: 15.0,
-                quantity:
-                    _monthlyQuantities['monthly-${user['id']}-$dateStr'] ?? 1,
+                quantity: _monthlyQuantities[id] ?? 1,
                 notes: 'Plan Mensual',
                 createdAt: date,
-              ),
-            )
+              );
+            })
             .toList();
 
         return _attachEmployeeData([...reservations, ...monthlyOrders], client);
@@ -455,7 +475,18 @@ class SupabaseReservationRepository
   }
 
   @override
-  Future<void> createReservation(Reservation reservation) async {
+  Future<Reservation> createReservation(Reservation reservation) async {
+    final client = SupabaseConfig.client;
+    if (client != null && _isUuid(reservation.userId)) {
+      final saved = await _createReservationOnServer(client, reservation);
+      if (saved != null) {
+        _inMemoryReservations
+          ..removeWhere((r) => r.id == reservation.id || r.id == saved.id)
+          ..add(saved);
+        return saved;
+      }
+    }
+
     // Almacenar en memoria primero para reactividad inmediata
     final existingIdx = _inMemoryReservations.indexWhere(
       (r) => r.id == reservation.id,
@@ -466,9 +497,8 @@ class SupabaseReservationRepository
       _inMemoryReservations.add(reservation);
     }
 
-    final client = SupabaseConfig.client;
     if (client == null) {
-      return;
+      return reservation;
     }
 
     final dateStr =
@@ -487,6 +517,8 @@ class SupabaseReservationRepository
         'id': reservation.id,
         'user_id': reservation.userId,
         'employee_code': reservation.storedEmployeeCode,
+        if (reservation.storedPickupCode != null)
+          'pickup_code': reservation.storedPickupCode,
         if (_isUuid(reservation.dishId)) 'dish_id': reservation.dishId,
         'dish_name': comboDishName,
         'entrada_nombre': reservation.entradaNombre,
@@ -507,7 +539,12 @@ class SupabaseReservationRepository
         if (reservation.notes != null) 'notes': reservation.notes,
       };
 
-      await client.from('reservations').insert(payload);
+      await _insertWithPickupCode(
+        client,
+        'reservations',
+        payload,
+        'pickup_code',
+      );
     } catch (e1) {
       // 2. Fallback de compatibilidad: Por si aún no se corrió la migración de nuevas columnas
       try {
@@ -515,6 +552,8 @@ class SupabaseReservationRepository
           'id': reservation.id,
           'user_id': reservation.userId,
           'employee_code': reservation.storedEmployeeCode,
+          if (reservation.storedPickupCode != null)
+            'pickup_code': reservation.storedPickupCode,
           if (_isUuid(reservation.dishId)) 'dish_id': reservation.dishId,
           'reservation_date': dateStr,
           'type': reservation.type,
@@ -531,13 +570,20 @@ class SupabaseReservationRepository
             'Combo: $comboDishName',
           ].join(' | '),
         };
-        await client.from('reservations').insert(payloadFallback);
+        await _insertWithPickupCode(
+          client,
+          'reservations',
+          payloadFallback,
+          'pickup_code',
+        );
       } catch (e2) {
         // 3. Fallback hacia tabla alternativa 'reservas'
         try {
           final payloadReservas = {
             'empleado_id': reservation.userId,
             'employee_code': reservation.storedEmployeeCode,
+            if (reservation.storedPickupCode != null)
+              'codigo_retiro': reservation.storedPickupCode,
             if (reservation.familiarId != null &&
                 int.tryParse(reservation.familiarId!) != null)
               'familiar_id': int.tryParse(reservation.familiarId!),
@@ -555,14 +601,234 @@ class SupabaseReservationRepository
               'Combo: $comboDishName',
             ].join(' | '),
           };
-          await client.from('reservas').insert(payloadReservas);
+          await _insertWithPickupCode(
+            client,
+            'reservas',
+            payloadReservas,
+            'codigo_retiro',
+          );
         } catch (e3) {
           debugPrint(
-            '⚠️ Error al guardar reserva en Supabase ($e1, $e2, $e3). Guardada en memoria.',
+            '⚠️ Error al guardar reserva en Supabase ($e1, $e2, $e3).',
           );
+          // Una reserva real que no llegó al servidor no debe mostrarse: su
+          // QR no existiría en la base y cocina lo rechazaría como inválido.
+          if (_isUuid(reservation.userId)) {
+            _inMemoryReservations.removeWhere((r) => r.id == reservation.id);
+            throw Exception(
+              'No se pudo guardar la reserva en el servidor: $e3',
+            );
+          }
         }
       }
     }
+    return reservation;
+  }
+
+  /// Crea la reserva con la RPC crear_reserva y devuelve la fila guardada con
+  /// el código de retiro generado por la base. Devuelve null si la RPC aún no
+  /// existe (migración pendiente) para usar el insert directo.
+  Future<Reservation?> _createReservationOnServer(
+    dynamic client,
+    Reservation reservation,
+  ) async {
+    final dynamic response;
+    try {
+      response = await client.rpc(
+        'crear_reserva',
+        params: {
+          'p_fecha': reservation.date.toIso8601String().substring(0, 10),
+          'p_familiar_id': int.tryParse(reservation.familiarId ?? ''),
+          'p_dish_name': reservation.dishName,
+          'p_entrada_nombre': reservation.entradaNombre,
+          'p_plato_principal': reservation.platoPrincipal,
+          'p_sopa_nombre': reservation.sopaNombre,
+          'p_es_almuerzo_completo': reservation.isAlmuerzoCompleto,
+          'p_menu_category': reservation.menuCategory.wireValue,
+          'p_cantidad': reservation.quantity,
+          'p_notas': reservation.notes,
+        },
+      );
+    } on PostgrestException catch (e) {
+      if (e.code == 'PGRST202') {
+        debugPrint('ℹ️ RPC crear_reserva no disponible: ${e.message}');
+        return null;
+      }
+      throw Exception(reservationErrorMessage(e.message));
+    }
+
+    final data = Map<String, dynamic>.from(response as Map);
+    return reservation.copyWith(
+      id: data['id'].toString(),
+      storedPickupCode: data['codigo_retiro']?.toString(),
+      status: 'confirmada',
+      price: (data['precio'] as num?)?.toDouble() ?? reservation.price,
+    );
+  }
+
+  /// Quita el prefijo técnico (RESERVA_DUPLICADA: ...) de los errores de la
+  /// RPC crear_reserva para mostrar solo el mensaje.
+  static String reservationErrorMessage(String raw) =>
+      raw.replaceFirst(RegExp(r'^[A-Z_]+:\s*'), '');
+
+  /// Inserta la reserva y, si la migración de códigos de retiro aún no se
+  /// aplicó, reintenta sin esa columna para no perder la reserva.
+  Future<void> _insertWithPickupCode(
+    dynamic client,
+    String table,
+    Map<String, dynamic> payload,
+    String codeColumn,
+  ) async {
+    try {
+      await client.from(table).insert(payload);
+    } catch (e) {
+      if (!payload.containsKey(codeColumn) ||
+          !e.toString().contains(codeColumn)) {
+        rethrow;
+      }
+      debugPrint(
+        'ℹ️ Falta la columna $codeColumn en $table. Ejecuta '
+        'supabase/migrations/20261026_pickup_codes_rpc.sql.',
+      );
+      await client.from(table).insert(Map.of(payload)..remove(codeColumn));
+    }
+  }
+
+  static String _monthlyId(String userId, String dateStr) =>
+      'monthly-$userId-$dateStr';
+
+  /// Separa `monthly-<uuid>-<yyyy-mm-dd>` en (empleado, fecha).
+  static (String, String)? _parseMonthlyId(String id) {
+    if (!id.startsWith('monthly-') || id.length < 'monthly-'.length + 12) {
+      return null;
+    }
+    final dateStr = id.substring(id.length - 10);
+    final userId = id.substring('monthly-'.length, id.length - 11);
+    return (userId, dateStr);
+  }
+
+  /// Tickets persistidos del Plan Mensual (código y estado) por id sintético.
+  Future<Map<String, Map<String, dynamic>>> _monthlyTickets(
+    dynamic client, {
+    String? userId,
+    String? dateStr,
+  }) async {
+    try {
+      var query = client
+          .from('tickets_plan_mensual')
+          .select('empleado_id, fecha, codigo_retiro, estado');
+      if (userId != null) query = query.eq('empleado_id', userId);
+      if (dateStr != null) query = query.eq('fecha', dateStr);
+      final rows = await query as List<dynamic>;
+      return {
+        for (final row in rows)
+          _monthlyId(row['empleado_id'].toString(), row['fecha'].toString()):
+              Map<String, dynamic>.from(row as Map),
+      };
+    } catch (e) {
+      debugPrint('ℹ️ No se pudieron cargar tickets del Plan Mensual: $e');
+      return {};
+    }
+  }
+
+  @override
+  Future<PickupCodeResult?> redeemPickupCode(
+    String code, {
+    bool ignoreServiceHours = false,
+  }) async {
+    final client = SupabaseConfig.client;
+    if (client == null) return null;
+
+    final dynamic response;
+    try {
+      response = await client.rpc(
+        'canjear_codigo_retiro',
+        params: {'p_codigo': code, 'p_ignorar_horario': ignoreServiceHours},
+      );
+    } on PostgrestException catch (e) {
+      // PGRST202: la RPC no existe (migración pendiente) → validación local.
+      if (e.code == 'PGRST202') {
+        debugPrint('ℹ️ RPC canjear_codigo_retiro no disponible: ${e.message}');
+        return null;
+      }
+      rethrow;
+    }
+
+    final data = Map<String, dynamic>.from(response as Map);
+    final reservationId = data['id']?.toString();
+    final status = switch (data['resultado']?.toString()) {
+      'entregada' => PickupCodeStatus.valid,
+      'cancelada' => PickupCodeStatus.cancelled,
+      'ya_entregada' => PickupCodeStatus.alreadyDelivered,
+      'otra_fecha' => PickupCodeStatus.wrongDate,
+      'fuera_de_horario' => PickupCodeStatus.outsideHours,
+      _ => PickupCodeStatus.notFound,
+    };
+    return PickupCodeResult(status, reservationId: reservationId);
+  }
+
+  @override
+  Future<String?> monthlyPlanPickupCode(DateTime date) async {
+    final client = SupabaseConfig.client;
+    if (client == null) return null;
+    try {
+      final rows = await client.rpc(
+        'obtener_ticket_plan_mensual',
+        params: {'p_fecha': date.toIso8601String().substring(0, 10)},
+      );
+      final list = rows as List<dynamic>;
+      if (list.isEmpty) return null;
+      return (list.first as Map)['codigo_retiro']?.toString();
+    } catch (e) {
+      debugPrint('ℹ️ No se pudo obtener el ticket del Plan Mensual: $e');
+      return null;
+    }
+  }
+
+  @override
+  Future<bool> isTestAccount(String userId) async {
+    final client = SupabaseConfig.client;
+    if (client == null || !_isUuid(userId)) return true;
+    try {
+      return await client.rpc('es_cuenta_prueba') == true;
+    } catch (e) {
+      debugPrint('ℹ️ No se pudo consultar si es cuenta de prueba: $e');
+      return false;
+    }
+  }
+
+  @override
+  Future<int> regenerateWeekTickets(String userId, DateTime date) async {
+    final monday = DateTime(date.year, date.month, date.day - date.weekday + 1);
+    final friday = monday.add(const Duration(days: 4));
+    final client = SupabaseConfig.client;
+    if (client != null && _isUuid(userId)) {
+      final count = await client.rpc(
+        'regenerar_tickets_semana',
+        params: {'p_fecha': monday.toIso8601String().substring(0, 10)},
+      );
+      _monthlyStatuses.removeWhere(
+        (id, _) => id.startsWith('monthly-$userId-'),
+      );
+      return (count as num).toInt();
+    }
+
+    // Modo local: se reactivan las reservas en memoria de la semana.
+    var count = 0;
+    for (var i = 0; i < _inMemoryReservations.length; i++) {
+      final r = _inMemoryReservations[i];
+      final day = DateTime(r.date.year, r.date.month, r.date.day);
+      if (r.userId != userId || day.isBefore(monday) || day.isAfter(friday)) {
+        continue;
+      }
+      _inMemoryReservations[i] = r.copyWith(
+        status: 'confirmada',
+        storedPickupCode: Reservation.generatePickupCode(),
+      );
+      count++;
+    }
+    _monthlyStatuses.removeWhere((id, _) => id.startsWith('monthly-$userId-'));
+    return count;
   }
 
   bool _isUuid(String? value) {
@@ -574,6 +840,38 @@ class SupabaseReservationRepository
 
   @override
   Future<void> cancelReservation(String reservationId) async {
+    final monthly = _parseMonthlyId(reservationId);
+    final client = SupabaseConfig.client;
+
+    // Primero el servidor: si rechaza (plazo vencido, sin conexión), el error
+    // se propaga y la reserva sigue confirmada en la app.
+    if (client != null) {
+      if (monthly != null) {
+        await client.rpc(
+          'cancelar_ticket_plan_mensual',
+          params: {'p_fecha': monthly.$2},
+        );
+      } else {
+        try {
+          await client
+              .from('reservations')
+              .update({'status': 'cancelada'})
+              .eq('id', reservationId);
+        } catch (e1) {
+          if (e1.toString().contains('PLAZO_CANCELACION_VENCIDO')) rethrow;
+          try {
+            await client
+                .from('reservas')
+                .update({'estado': 'CANCELADA'})
+                .eq('id', reservationId);
+          } catch (e2) {
+            debugPrint('⚠️ Error al cancelar reserva en Supabase: $e1, $e2');
+            rethrow;
+          }
+        }
+      }
+    }
+
     final index = _inMemoryReservations.indexWhere(
       (r) => r.id == reservationId,
     );
@@ -582,25 +880,7 @@ class SupabaseReservationRepository
         status: 'cancelada',
       );
     }
-
-    final client = SupabaseConfig.client;
-    if (client == null) return;
-
-    try {
-      await client
-          .from('reservations')
-          .update({'status': 'cancelada'})
-          .eq('id', reservationId);
-    } catch (e1) {
-      try {
-        await client
-            .from('reservas')
-            .update({'estado': 'CANCELADA'})
-            .eq('id', reservationId);
-      } catch (e2) {
-        debugPrint('⚠️ Error al cancelar reserva en Supabase: $e1, $e2');
-      }
-    }
+    if (monthly != null) _monthlyStatuses[reservationId] = 'cancelada';
   }
 
   @override
@@ -622,6 +902,20 @@ class SupabaseReservationRepository
 
     final client = SupabaseConfig.client;
     if (client == null) return;
+
+    final monthly = _parseMonthlyId(reservationId);
+    if (monthly != null) {
+      try {
+        await client.from('tickets_plan_mensual').upsert({
+          'empleado_id': monthly.$1,
+          'fecha': monthly.$2,
+          'estado': status,
+        }, onConflict: 'empleado_id,fecha');
+      } catch (e) {
+        debugPrint('⚠️ Error al guardar ticket del Plan Mensual: $e');
+      }
+      return;
+    }
 
     try {
       await client

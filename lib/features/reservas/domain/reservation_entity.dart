@@ -1,3 +1,5 @@
+import 'dart:math';
+
 enum ReservationMenuCategory {
   almuerzoCompleto,
   menuVegetariano,
@@ -53,6 +55,10 @@ class Reservation {
   final String userId;
   final String userName;
   final String? storedEmployeeCode;
+
+  /// Código de retiro aleatorio y único de esta reserva (ej. A3F9-0C7E).
+  /// Las reservas antiguas o generadas sin servidor no lo tienen.
+  final String? storedPickupCode;
   final String? familiarId; // ID del familiar en Supabase (public.familiares)
   final String?
   beneficiaryName; // Nombre del beneficiario (Empleado o Familiar)
@@ -77,6 +83,7 @@ class Reservation {
     required this.userId,
     this.userName = 'Usuario',
     this.storedEmployeeCode,
+    this.storedPickupCode,
     this.familiarId,
     this.beneficiaryName,
     this.dishId,
@@ -117,7 +124,21 @@ class Reservation {
     return 'EMP-${numericCode.toString().padLeft(3, '0')}';
   }
 
+  /// Genera un código de retiro aleatorio con el mismo formato que la BD.
+  static String generatePickupCode([Random? random]) {
+    final rng = random ?? Random.secure();
+    String block() => List.generate(
+      4,
+      (_) => rng.nextInt(16).toRadixString(16),
+    ).join().toUpperCase();
+    return '${block()}-${block()}';
+  }
+
+  /// Código que se muestra en el QR. Usa el código aleatorio guardado y, solo
+  /// para reservas sin él, el formato anterior basado en empleado y fecha.
   String get pickupCode {
+    final stored = storedPickupCode?.trim();
+    if (stored != null && stored.isNotEmpty) return stored.toUpperCase();
     const weekdays = <String>[
       'LUNES',
       'MARTES',
@@ -137,6 +158,7 @@ class Reservation {
     String? userId,
     String? userName,
     String? storedEmployeeCode,
+    String? storedPickupCode,
     String? familiarId,
     String? beneficiaryName,
     String? dishId,
@@ -159,6 +181,7 @@ class Reservation {
       userId: userId ?? this.userId,
       userName: userName ?? this.userName,
       storedEmployeeCode: storedEmployeeCode ?? this.storedEmployeeCode,
+      storedPickupCode: storedPickupCode ?? this.storedPickupCode,
       familiarId: familiarId ?? this.familiarId,
       beneficiaryName: beneficiaryName ?? this.beneficiaryName,
       dishId: dishId ?? this.dishId,
@@ -209,6 +232,8 @@ class Reservation {
       userId: (json['empleado_id'] ?? json['user_id'])?.toString() ?? '',
       userName: json['user_name']?.toString() ?? 'Usuario',
       storedEmployeeCode: json['employee_code']?.toString(),
+      storedPickupCode: (json['pickup_code'] ?? json['codigo_retiro'])
+          ?.toString(),
       familiarId: json['familiar_id']?.toString(),
       beneficiaryName: json['beneficiary_name']?.toString(),
       dishId: json['dish_id']?.toString(),
@@ -229,9 +254,7 @@ class Reservation {
           ? DateTime.parse(json['fecha'] as String)
           : DateTime.now(),
       type: json['tipo'] ?? json['type'] ?? 'diaria',
-      status:
-          (json['estado'] ?? json['status'])?.toString().toLowerCase() ??
-          'confirmada',
+      status: _normalizeStatus(json['estado'] ?? json['status']),
       price:
           (json['precio'] as num?)?.toDouble() ??
           (json['price'] as num?)?.toDouble() ??
@@ -249,6 +272,13 @@ class Reservation {
     );
   }
 
+  /// La tabla reservas usa 'ACTIVA' para lo que la app llama 'confirmada'.
+  static String _normalizeStatus(Object? raw) {
+    final status = raw?.toString().trim().toLowerCase() ?? '';
+    if (status.isEmpty || status == 'activa') return 'confirmada';
+    return status;
+  }
+
   Map<String, dynamic> toJson() {
     final dateStr =
         "${date.year.toString().padLeft(4, '0')}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}";
@@ -257,6 +287,7 @@ class Reservation {
       'user_id': userId,
       'empleado_id': userId,
       'employee_code': storedEmployeeCode,
+      if (storedPickupCode != null) 'pickup_code': storedPickupCode,
       if (familiarId != null) 'familiar_id': familiarId,
       'beneficiary_name': beneficiaryName ?? userName,
       'dish_id': dishId,

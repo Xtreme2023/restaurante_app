@@ -1,9 +1,15 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:restaurante_app/features/auth/data/supabase_auth_repository.dart';
+import 'package:restaurante_app/features/auth/domain/login_attempt_policy.dart';
 import 'package:restaurante_app/features/auth/domain/user_profile.dart';
 
 final authRepositoryProvider = Provider<SupabaseAuthRepository>((ref) {
   return SupabaseAuthRepository();
+});
+
+/// Contador de intentos fallidos de login, compartido durante la ejecución.
+final loginAttemptPolicyProvider = Provider<LoginAttemptPolicy>((ref) {
+  return LoginAttemptPolicy();
 });
 
 class AuthNotifier extends Notifier<UserProfile?> {

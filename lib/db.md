@@ -245,6 +245,19 @@ que no dependa de un enum distinto entre ambientes.
 
 ---
 
+## Códigos de retiro (QR) y canje en el servidor
+
+Ejecuta `supabase/migrations/20261026_pickup_codes_rpc.sql` en el SQL Editor:
+- Agrega `reservations.pickup_code` y `reservas.codigo_retiro` (únicos, con
+  código aleatorio por defecto) y completa las filas existentes.
+- Crea `tickets_plan_mensual` para los almuerzos diarios del Plan Mensual.
+- RPC `canjear_codigo_retiro(p_codigo, p_ignorar_horario)`: solo
+  administradores; devuelve `entregada`, `cancelada`, `ya_entregada`,
+  `otra_fecha`, `fuera_de_horario` o `no_encontrado`.
+- RPC `obtener_ticket_plan_mensual(p_fecha)` y
+  `cancelar_ticket_plan_mensual(p_fecha)` para el empleado con Plan Mensual.
+- La hora de servicio se evalúa en `America/La_Paz`.
+
 ## Recursos Multimedia del Menú (`platos`)
 
 Para vincular las imágenes estáticas locales a los platos del menú institucional, ejecuta el script `supabase/migrations/update_imagenes_platos.sql` en el SQL Editor de Supabase:

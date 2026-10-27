@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:restaurante_app/core/config/supabase_config.dart';
-import 'package:restaurante_app/features/admin/presentation/encargado_screen.dart';
 import 'package:restaurante_app/features/admin/presentation/institucion_screen.dart';
 import 'package:restaurante_app/features/auth/data/supabase_auth_repository.dart';
 import 'package:restaurante_app/features/auth/domain/user_profile.dart';
@@ -110,11 +109,6 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                         value: 'empleado',
                         child: Text('Empleado'),
                       ),
-                      DropdownMenuItem(value: 'cocina', child: Text('Cocina')),
-                      DropdownMenuItem(
-                        value: 'encargado',
-                        child: Text('Encargado'),
-                      ),
                       DropdownMenuItem(
                         value: 'admin',
                         child: Text('Administrador'),
@@ -203,16 +197,8 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                 ),
                 const SizedBox(height: 8),
                 _buildDemoButton(
-                  '2. Entrar como Encargado',
-                  'Chef Carlos (Cocina y despacho)',
-                  Icons.restaurant_menu,
-                  Colors.orange,
-                  SupabaseAuthRepository.demoEncargado,
-                ),
-                const SizedBox(height: 8),
-                _buildDemoButton(
-                  '3. Entrar como Institución',
-                  'Lic. Mariana Gómez (Métricas)',
+                  '2. Entrar como Administrador',
+                  'Lic. Mariana Gómez (Personal, cocina y métricas)',
                   Icons.business,
                   Colors.purple,
                   SupabaseAuthRepository.demoInstitucion,
@@ -531,26 +517,6 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
 
                 const Divider(),
 
-                // Panel Encargado de Cocina
-                _buildActionTile(
-                  title: 'Panel de Cocina & Despacho',
-                  subtitle: user.isEncargado
-                      ? 'Administra la entrega de platos de hoy'
-                      : 'Ver vista previa del encargado de cocina',
-                  icon: Icons.soup_kitchen,
-                  color: Colors.orange,
-                  onTap: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (_) => const EncargadoScreen(),
-                      ),
-                    );
-                  },
-                ),
-
-                const Divider(),
-
                 // Panel Institucional
                 _buildActionTile(
                   title: 'Métricas Institucionales',
@@ -609,18 +575,6 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                             .setDemoUser(SupabaseAuthRepository.demoEmpleado),
                         child: const Text(
                           'Empleado',
-                          style: TextStyle(fontSize: 11),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 6),
-                    Expanded(
-                      child: OutlinedButton(
-                        onPressed: () => ref
-                            .read(authProvider.notifier)
-                            .setDemoUser(SupabaseAuthRepository.demoEncargado),
-                        child: const Text(
-                          'Cocina',
                           style: TextStyle(fontSize: 11),
                         ),
                       ),

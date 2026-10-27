@@ -2691,6 +2691,17 @@ class _EmployeeScreenState extends ConsumerState<EmployeeScreen> {
                 '$beneficiary · $comboName\nTotal: Bs. ${tariffPrice.toStringAsFixed(2)}',
           );
           _notesController.clear();
+        } else if (context.mounted) {
+          final error = ref.read(userReservationsProvider.notifier).lastError;
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                'No se pudo registrar la reserva${error != null ? ': $error' : '.'}',
+              ),
+              backgroundColor: Colors.redAccent,
+              duration: const Duration(seconds: 8),
+            ),
+          );
         }
       }
     } catch (e) {

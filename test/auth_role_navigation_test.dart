@@ -1,3 +1,4 @@
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:restaurante_app/features/auth/data/supabase_auth_repository.dart';
@@ -74,7 +75,10 @@ void main() {
           'cocina.turno@test.com',
           '123456',
         );
-        expect(coc.isCocina, isTrue);
+        // El rol cocina/encargado ya no tiene pantalla propia: sus funciones
+        // están en el Panel Administrador.
+        expect(coc.isCocina, isFalse);
+        expect(coc.isEmpleado, isTrue);
       },
     );
 
@@ -143,20 +147,25 @@ void main() {
 
       expect(find.text('Panel Administrador'), findsOneWidget);
       expect(
-        find.text('Gestión de personal, familiares y membresías'),
+        find.text('Gestión de personal, membresías, cocina y despacho'),
         findsOneWidget,
       );
       expect(find.text('Empleados & Familiares'), findsOneWidget);
+      expect(find.text('Cocina'), findsOneWidget);
     });
 
-    testWidgets('Redirección Cocina: Lleva al Panel de Cocina y despacho', (
+    testWidgets('Admin: la pestaña Cocina muestra el panel de cocina', (
       tester,
     ) async {
+      tester.view.physicalSize = const Size(1000, 1400);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(() => tester.view.resetPhysicalSize());
+
       await tester.pumpWidget(
         ProviderScope(
           overrides: [
             authProvider.overrideWith(
-              () => TestAuthNotifier(SupabaseAuthRepository.demoCocina),
+              () => TestAuthNotifier(SupabaseAuthRepository.demoAdmin),
             ),
           ],
           child: const RestauranteApp(),
@@ -164,12 +173,15 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      expect(find.text('Panel de Cocina'), findsOneWidget);
+      await tester.tap(find.text('Cocina'));
+      await tester.pumpAndSettle();
+
       expect(
         find.text('Métricas de producción y menú semanal boliviano'),
         findsOneWidget,
       );
       expect(find.text('Resumen & Totales'), findsOneWidget);
+      expect(find.text('Total Pedidos'), findsOneWidget);
     });
   });
 }

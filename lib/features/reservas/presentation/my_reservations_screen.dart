@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:qr_flutter/qr_flutter.dart';
+import 'package:restaurante_app/core/config/supabase_config.dart';
 import 'package:restaurante_app/core/utils/date_utils.dart';
+import 'package:restaurante_app/features/auth/presentation/providers/auth_provider.dart';
 import 'package:restaurante_app/features/reservas/domain/reservation_entity.dart';
+import 'package:restaurante_app/features/reservas/domain/reservation_repository.dart';
 import 'package:restaurante_app/features/reservas/domain/usecases/reservation_policy.dart';
 import 'package:restaurante_app/features/reservas/presentation/providers/reservation_providers.dart';
 
@@ -76,6 +79,12 @@ class _MyReservationsScreenState extends ConsumerState<MyReservationsScreen>
         foregroundColor: Colors.white,
         elevation: 0,
         actions: [
+          if (ref.watch(testAccountProvider).value ?? false)
+            IconButton(
+              icon: const Icon(Icons.science, color: Colors.orangeAccent),
+              tooltip: 'Modo prueba: regenerar tickets de la semana',
+              onPressed: () => _regenerateWeekTickets(currentTime),
+            ),
           IconButton(
             icon: const Icon(Icons.refresh, color: Colors.white),
             tooltip: 'Actualizar',
@@ -280,10 +289,18 @@ class _MyReservationsScreenState extends ConsumerState<MyReservationsScreen>
                       icon: const Icon(Icons.groups_outlined, size: 18),
                       label: const Text('Cantidad'),
                     ),
+                    // Una reserva cancelada deja su QR sin efecto.
                     OutlinedButton.icon(
-                      onPressed: () => _showTicketModal(context, res),
-                      icon: const Icon(Icons.qr_code, size: 18),
-                      label: const Text('Ver Ticket'),
+                      onPressed: res.isCancelled
+                          ? null
+                          : () => _showTicketModal(context, res),
+                      icon: Icon(
+                        res.isCancelled ? Icons.qr_code_2 : Icons.qr_code,
+                        size: 18,
+                      ),
+                      label: Text(
+                        res.isCancelled ? 'QR anulado' : 'Ver Ticket',
+                      ),
                     ),
                     if (isUpcoming && res.isConfirmed) ...[
                       // Cancelar reserva
@@ -404,18 +421,116 @@ class _MyReservationsScreenState extends ConsumerState<MyReservationsScreen>
 
     if (confirm != true || !mounted) return;
 
-    final success = await ref
+    final result = await ref
         .read(userReservationsProvider.notifier)
         .cancelReservation(reservationId);
 
-    if (mounted && success) {
+    if (!mounted) return;
+    if (!result.isAllowed) {
+      _showCancelPolicyAlert(context, result.message);
+      return;
+    }
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Reserva cancelada con éxito.'),
+        backgroundColor: Colors.redAccent,
+      ),
+    );
+  }
+
+  /// Modo prueba: reactiva los tickets de lunes a viernes con códigos nuevos
+  /// para volver a escanearlos. En fin de semana usa la semana siguiente.
+  Future<void> _regenerateWeekTickets(DateTime now) async {
+    final week = now.weekday > DateTime.friday
+        ? now.add(Duration(days: 8 - now.weekday))
+        : now;
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        icon: const Icon(Icons.science, color: Colors.deepOrange, size: 36),
+        title: const Text('Regenerar tickets de la semana'),
+        content: Text(
+          'Los tickets de la semana del ${AppDateUtils.formatFullDate(week)} '
+          'quedarán confirmados con códigos QR nuevos, incluso los ya '
+          'retirados o cancelados. Los QR anteriores dejarán de ser válidos.\n\n'
+          'Disponible solo para cuentas de prueba.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Regenerar'),
+          ),
+        ],
+      ),
+    );
+    if (confirm != true || !mounted) return;
+
+    final user = ref.read(authProvider);
+    final repo = ref.read(reservationRepositoryProvider);
+    if (user == null || repo is! PickupCodeRepository) return;
+    try {
+      final count = await (repo as PickupCodeRepository).regenerateWeekTickets(
+        user.id,
+        week,
+      );
+      await ref
+          .read(userReservationsProvider.notifier)
+          .loadReservations(userId: user.id);
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Reserva cancelada con éxito.'),
-          backgroundColor: Colors.redAccent,
+        SnackBar(
+          content: Text('$count ticket(s) regenerados para la semana.'),
+          backgroundColor: Colors.green,
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('No se pudieron regenerar los tickets: $e'),
+          backgroundColor: Colors.red,
         ),
       );
     }
+  }
+
+  /// Código del QR. Con servidor, solo se usa un código guardado en la base:
+  /// un QR inventado en el teléfono sería rechazado por cocina. Las reservas
+  /// del Plan Mensual no son filas, así que su ticket se obtiene (o crea) en
+  /// el servidor al abrirlo.
+  Future<String> _ticketCode(Reservation res) async {
+    final stored = res.storedPickupCode?.trim();
+    if (stored != null && stored.isNotEmpty) return stored.toUpperCase();
+
+    // Modo local o cuentas demo: no hay base que validar.
+    final isServerAccount = RegExp(
+      r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$',
+    ).hasMatch(res.userId);
+    if (SupabaseConfig.client == null || !isServerAccount) {
+      return res.pickupCode;
+    }
+
+    if (res.id.startsWith('monthly-')) {
+      final repo = ref.read(reservationRepositoryProvider);
+      if (repo is PickupCodeRepository) {
+        final code = await (repo as PickupCodeRepository).monthlyPlanPickupCode(
+          res.date,
+        );
+        if (code != null) return code;
+      }
+      throw StateError(
+        'No se pudo obtener el ticket del Plan Mensual. Revisa tu conexión '
+        'e inténtalo de nuevo.',
+      );
+    }
+    throw StateError(
+      'Esta reserva no tiene código de retiro en el servidor. Actualiza la '
+      'lista y, si continúa, vuelve a reservar.',
+    );
   }
 
   void _showTicketModal(BuildContext context, Reservation res) {
@@ -458,30 +573,57 @@ class _MyReservationsScreenState extends ConsumerState<MyReservationsScreen>
                 borderRadius: BorderRadius.circular(16),
                 border: Border.all(color: Colors.grey.shade300),
               ),
-              child: Column(
-                children: [
-                  QrImageView(
-                    data: res.pickupCode,
-                    size: 140,
-                    eyeStyle: QrEyeStyle(
-                      eyeShape: QrEyeShape.square,
-                      color: Theme.of(context).colorScheme.primary,
-                    ),
-                    dataModuleStyle: QrDataModuleStyle(
-                      dataModuleShape: QrDataModuleShape.square,
-                      color: Theme.of(context).colorScheme.primary,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    res.pickupCode,
-                    style: const TextStyle(
-                      fontFamily: 'monospace',
-                      fontWeight: FontWeight.bold,
-                      letterSpacing: 2,
-                    ),
-                  ),
-                ],
+              child: FutureBuilder<String>(
+                future: _ticketCode(res),
+                builder: (context, snapshot) {
+                  if (snapshot.hasError) {
+                    return SizedBox(
+                      height: 170,
+                      child: Center(
+                        child: Text(
+                          snapshot.error.toString().replaceFirst(
+                            'Bad state: ',
+                            '',
+                          ),
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(color: Colors.red),
+                        ),
+                      ),
+                    );
+                  }
+                  if (!snapshot.hasData) {
+                    return const SizedBox(
+                      height: 170,
+                      child: Center(child: CircularProgressIndicator()),
+                    );
+                  }
+                  final code = snapshot.data!;
+                  return Column(
+                    children: [
+                      QrImageView(
+                        data: code,
+                        size: 140,
+                        eyeStyle: QrEyeStyle(
+                          eyeShape: QrEyeShape.square,
+                          color: Theme.of(context).colorScheme.primary,
+                        ),
+                        dataModuleStyle: QrDataModuleStyle(
+                          dataModuleShape: QrDataModuleShape.square,
+                          color: Theme.of(context).colorScheme.primary,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        code,
+                        style: const TextStyle(
+                          fontFamily: 'monospace',
+                          fontWeight: FontWeight.bold,
+                          letterSpacing: 2,
+                        ),
+                      ),
+                    ],
+                  );
+                },
               ),
             ),
             const SizedBox(height: 16),
@@ -574,7 +716,9 @@ class _MyReservationsScreenState extends ConsumerState<MyReservationsScreen>
         ),
       ),
     );
-    if (selected == null || selected == reservation.quantity || !mounted) return;
+    if (selected == null || selected == reservation.quantity || !mounted) {
+      return;
+    }
     final success = await ref
         .read(userReservationsProvider.notifier)
         .updateQuantity(reservation.id, selected);

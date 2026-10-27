@@ -3,10 +3,12 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:restaurante_app/features/admin/domain/admin_employee_entity.dart';
 import 'package:restaurante_app/features/admin/presentation/institucion_screen.dart';
+import 'package:restaurante_app/features/admin/presentation/kitchen_panel.dart';
 import 'package:restaurante_app/features/admin/presentation/providers/admin_providers.dart';
 import 'package:restaurante_app/features/auth/presentation/providers/auth_provider.dart';
 import 'package:restaurante_app/features/familiares/domain/familiar_entity.dart';
 import 'package:restaurante_app/features/familiares/domain/family_policy.dart';
+import 'package:restaurante_app/features/reservas/presentation/providers/reservation_providers.dart';
 
 class AdminScreen extends ConsumerStatefulWidget {
   const AdminScreen({super.key});
@@ -23,7 +25,7 @@ class _AdminScreenState extends ConsumerState<AdminScreen>
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 4, vsync: this);
+    _tabController = TabController(length: 5, vsync: this);
   }
 
   @override
@@ -36,6 +38,7 @@ class _AdminScreenState extends ConsumerState<AdminScreen>
   Widget build(BuildContext context) {
     final state = ref.watch(adminEmployeesProvider);
     final currentFilter = ref.watch(membershipFilterProvider);
+    final demoMode = ref.watch(demoModeProvider);
 
     return Scaffold(
       backgroundColor: Colors.transparent,
@@ -52,7 +55,7 @@ class _AdminScreenState extends ConsumerState<AdminScreen>
               ),
             ),
             Text(
-              'Gestión de personal, familiares y membresías',
+              'Gestión de personal, membresías, cocina y despacho',
               style: TextStyle(fontSize: 12, color: Colors.white70),
             ),
           ],
@@ -61,6 +64,16 @@ class _AdminScreenState extends ConsumerState<AdminScreen>
         foregroundColor: Colors.white,
         elevation: 0,
         actions: [
+          IconButton(
+            icon: Icon(
+              demoMode ? Icons.science : Icons.science_outlined,
+              color: demoMode ? Colors.orangeAccent : Colors.white,
+            ),
+            tooltip: demoMode
+                ? 'Desactivar modo demostración'
+                : 'Activar modo demostración',
+            onPressed: () => _toggleDemoMode(demoMode),
+          ),
           IconButton(
             icon: const Icon(Icons.refresh, color: Colors.white),
             tooltip: 'Actualizar lista',
@@ -88,6 +101,7 @@ class _AdminScreenState extends ConsumerState<AdminScreen>
               text: 'Empleados & Familiares',
             ),
             Tab(icon: Icon(Icons.card_membership_outlined), text: 'Membresías'),
+            Tab(icon: Icon(Icons.soup_kitchen_outlined), text: 'Cocina'),
             Tab(icon: Icon(Icons.analytics_outlined), text: 'Auditoría'),
             Tab(icon: Icon(Icons.lock_reset_outlined), text: 'Solicitudes'),
           ],
@@ -98,6 +112,7 @@ class _AdminScreenState extends ConsumerState<AdminScreen>
         children: [
           _buildEmployeesTab(state),
           _buildMembershipsTab(state, currentFilter),
+          const KitchenPanel(),
           const InstitucionScreen(),
           _buildPasswordResetRequestsTab(),
         ],
@@ -112,6 +127,41 @@ class _AdminScreenState extends ConsumerState<AdminScreen>
             )
           : null,
     );
+  }
+
+  Future<void> _toggleDemoMode(bool currentlyEnabled) async {
+    final notifier = ref.read(demoModeProvider.notifier);
+    if (currentlyEnabled) {
+      notifier.setEnabled(false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Modo demostración desactivado.')),
+      );
+      return;
+    }
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        icon: const Icon(Icons.science, color: Colors.deepOrange, size: 36),
+        title: const Text('Modo demostración'),
+        content: const Text(
+          'Permite reservar, cancelar y registrar retiros del día fuera del '
+          'horario de servicio (09:00 y 12:00–14:00).\n\n'
+          'Las acciones se guardan como reales. Úsalo solo con cuentas de '
+          'prueba. Se desactiva al cerrar la aplicación.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Activar'),
+          ),
+        ],
+      ),
+    );
+    if (confirm == true) notifier.setEnabled(true);
   }
 
   Widget _buildPasswordResetRequestsTab() {
@@ -927,7 +977,8 @@ class _AdminScreenState extends ConsumerState<AdminScreen>
     );
     final emailController = TextEditingController(text: employee?.email ?? '');
     final employeeCodeController = TextEditingController(
-      text: employee?.employeeCode ??
+      text:
+          employee?.employeeCode ??
           'EMP-${(ref.read(adminEmployeesProvider).employees.length + 1).toString().padLeft(3, '0')}',
     );
     final passwordController = TextEditingController();
@@ -1187,8 +1238,6 @@ class _AdminScreenState extends ConsumerState<AdminScreen>
                               initialValue:
                                   const [
                                     'admin',
-                                    'cocina',
-                                    'encargado',
                                     'empleado',
                                   ].contains(selectedRole)
                                   ? selectedRole
@@ -1201,14 +1250,6 @@ class _AdminScreenState extends ConsumerState<AdminScreen>
                                 DropdownMenuItem(
                                   value: 'admin',
                                   child: Text('Administrador'),
-                                ),
-                                DropdownMenuItem(
-                                  value: 'cocina',
-                                  child: Text('Cocina'),
-                                ),
-                                DropdownMenuItem(
-                                  value: 'encargado',
-                                  child: Text('Encargado'),
                                 ),
                                 DropdownMenuItem(
                                   value: 'empleado',

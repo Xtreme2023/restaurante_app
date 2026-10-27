@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:restaurante_app/features/auth/domain/login_attempt_policy.dart';
 import 'package:restaurante_app/features/auth/presentation/providers/auth_provider.dart';
 
 class LoginScreen extends ConsumerStatefulWidget {
@@ -78,8 +79,15 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       return;
     }
 
+    final attempts = ref.read(loginAttemptPolicyProvider);
+    if (attempts.isLocked(email)) {
+      await _showLockedDialog();
+      return;
+    }
+
     setState(() => _isLoading = true);
     final ok = await ref.read(authProvider.notifier).signIn(email, password);
+    if (ok) attempts.reset(email);
     if (mounted) {
       setState(() => _isLoading = false);
       if (!ok) {
@@ -92,12 +100,48 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
             ? 'No se puede consultar la base de datos porque el proveedor Email está deshabilitado en Supabase. Habilítalo en Authentication > Providers.'
             : error.contains('no tiene un perfil')
             ? 'La cuenta existe, pero no tiene un perfil asociado en Supabase. Registra el perfil del usuario y vuelve a intentar.'
-            : 'Error al iniciar sesión. Revisa tus credenciales.';
+            : null;
+        if (message == null) {
+          // Credenciales incorrectas: cuenta para el bloqueo.
+          final remaining = attempts.registerFailure(email);
+          if (remaining == 0) {
+            await _showLockedDialog();
+            return;
+          }
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                'Correo o contraseña incorrectos. '
+                '${remaining == 1 ? 'Te queda 1 intento' : 'Te quedan $remaining intentos'} '
+                'antes del bloqueo.',
+              ),
+              backgroundColor: Colors.redAccent,
+            ),
+          );
+          return;
+        }
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text(message), backgroundColor: Colors.redAccent),
         );
       }
     }
+  }
+
+  Future<void> _showLockedDialog() {
+    return showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        icon: const Icon(Icons.lock_outline, color: Colors.redAccent, size: 40),
+        title: const Text('Acceso bloqueado'),
+        content: const Text(LoginAttemptPolicy.lockedMessage),
+        actions: [
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Entendido'),
+          ),
+        ],
+      ),
+    );
   }
 
   @override
